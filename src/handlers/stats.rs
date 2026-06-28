@@ -100,6 +100,13 @@ pub(crate) async fn chat_stats_impl(repos: &repo::Repositories, from_refs: FromR
         .unwrap_or_default();
     let length_stats = t!("commands.stats.length", locale = &lang_code,
         length = length, pos = position).to_string();
+    // the player's net standing (ghei + what's owed to them − what they owe) and its credit/debit
+    // breakdown - the same figure the net `/top` ranks by, surfaced here for the player's own view.
+    let net_stats = match repos.dicks.get_net_position(&from_refs.1.kind(), from_refs.0.id).await? {
+        Some(np) => format!("\n{}", t!("commands.stats.net", locale = &lang_code,
+            net = np.net, pos = np.position.unwrap_or_default(), credit = np.credit, debt = np.debt)),
+        None => String::default(),
+    };
     let pvp_stats = repos.pvp_stats.get_stats(&from_refs.1.kind(), from_refs.0.id).await
         .map(|stats| t!("commands.stats.pvp", locale = &lang_code,
             win_rate = stats.win_rate_formatted(), win_streak = stats.win_streak_max,
@@ -112,5 +119,5 @@ pub(crate) async fn chat_stats_impl(repos: &repo::Repositories, from_refs: FromR
     } else {
         String::default()
     };
-    Ok(format!("{length_stats}\n\n{pvp_stats}\n\n{breakdown}{notice_part}"))
+    Ok(format!("{length_stats}{net_stats}\n\n{pvp_stats}\n\n{breakdown}{notice_part}"))
 }

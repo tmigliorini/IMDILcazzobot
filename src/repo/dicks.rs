@@ -36,6 +36,18 @@ pub struct NetPositionRow {
     pub position: Option<i64>,
 }
 
+/// A single player's net standing for `/stats`: their rank in the net-position leaderboard plus
+/// the credit/debit split behind it (`credit` = total still owed *to* them across active p2p
+/// loans; `debt` = total they still owe - bank loan + p2p loans + loan-interest tax debts). The
+/// net value itself is `raw_length + credit - debt` (the same figure `get_top_by_net` ranks by).
+#[derive(sqlx::FromRow, Debug)]
+pub struct NetPosition {
+    pub net: i32,
+    pub credit: i32,
+    pub debt: i32,
+    pub position: Option<i64>,
+}
+
 pub struct GrowthResult {
     pub new_length: i32,
     pub pos_in_top: Option<u64>,
@@ -176,6 +188,51 @@ impl Dicks {
             .fetch_all(&self.pool)
             .await
             .context(format!("couldn't get the net-position top of {chat_id} with offset = {offset} and limit = {limit}"))
+    }
+
+    /// One player's row out of the same net-position ranking `get_top_by_net` builds (so the
+    /// `position` here matches that leaderboard exactly), plus the credit/debit breakdown behind
+    /// their net - for the personal `/stats` view. `None` if the player has no dick in the chat.
+    pub async fn get_net_position(&self, chat_id: &ChatIdKind, uid: UserId) -> anyhow::Result<Option<NetPosition>> {
+        sqlx::query_as!(NetPosition,
+            r#"SELECT net AS "net!", credit AS "credit!", debt AS "debt!", position FROM (
+                    SELECT net, credit, debt, owner_uid,
+                        ROW_NUMBER() OVER (ORDER BY net DESC, grown_at DESC, owner_name) AS position
+                    FROM (
+                        SELECT
+                            (d.length
+                                - COALESCE(bank.debt, 0)
+                                - COALESCE(borrow.debt, 0)
+                                + COALESCE(lend.debt, 0)
+                                - COALESCE(tax.debt, 0)
+                            )::int AS net,
+                            COALESCE(lend.debt, 0)::int AS credit,
+                            (COALESCE(bank.debt, 0) + COALESCE(borrow.debt, 0) + COALESCE(tax.debt, 0))::int AS debt,
+                            d.uid AS owner_uid, u.name AS owner_name, d.updated_at AS grown_at
+                        FROM dicks d
+                        JOIN users u ON u.uid = d.uid
+                        JOIN chats c ON c.id = d.chat_id
+                        LEFT JOIN loans bank ON bank.uid = d.uid AND bank.chat_id = d.chat_id AND bank.repaid_at IS NULL
+                        LEFT JOIN (
+                            SELECT borrower_uid, chat_id, SUM(debt) AS debt FROM p2p_loans
+                                WHERE repaid_at IS NULL GROUP BY borrower_uid, chat_id
+                        ) borrow ON borrow.borrower_uid = d.uid AND borrow.chat_id = d.chat_id
+                        LEFT JOIN (
+                            SELECT lender_uid, chat_id, SUM(debt) AS debt FROM p2p_loans
+                                WHERE repaid_at IS NULL GROUP BY lender_uid, chat_id
+                        ) lend ON lend.lender_uid = d.uid AND lend.chat_id = d.chat_id
+                        LEFT JOIN (
+                            SELECT payer_uid, chat_id, SUM(debt) AS debt FROM loan_interest_tax_debts
+                                WHERE repaid_at IS NULL GROUP BY payer_uid, chat_id
+                        ) tax ON tax.payer_uid = d.uid AND tax.chat_id = d.chat_id
+                        WHERE c.chat_id = $1::bigint OR c.chat_instance = $1::text
+                    ) base
+                ) ranked
+                WHERE owner_uid = $2"#,
+                chat_id.value() as String, uid.0 as i64)
+            .fetch_optional(&self.pool)
+            .await
+            .context(format!("couldn't get the net position of {uid} in {chat_id}"))
     }
 
     pub async fn set_dod_winner(&self, chat_id: &ChatIdPartiality, user_id: UserId, bonus: u16) -> anyhow::Result<Option<GrowthResult>> {

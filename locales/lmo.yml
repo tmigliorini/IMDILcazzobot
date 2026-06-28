@@ -140,8 +140,8 @@ commands:
     as_lender:
       title: "📤 <i>Quell che te spetta de incassà:</i>"
       group_header: "— de <b>%{name}</b>, in total <b>%{total} ghei</b>:"
-    loan_line: "    <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b> · <i>%{datetime}</i>"
-    breakdown_line: "        capital <b>%{principal} ghei</b> + interess <b>%{interest} ghei</b> al <b>%{rate}%</b>"
+    loan_line: "    <i>%{datetime}</i> - rimanent <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b>"
+    breakdown_line: "        capital <b>%{principal} ghei</b> + interess <b>%{interest} ghei</b> al <b>%{rate}%</b> de tass"
     tax_debt:
       title: "🇮🇹 <i>Debit de tassa sui interess:</i>"
       line: "— <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b>"
@@ -158,6 +158,7 @@ commands:
   stats:
     description: "Statistiche"
     length: "Longhezza: <b>%{length}</b>\nPosizion in la classifica: <b>%{pos}</b>"
+    net: "Posizion netta (bigol + credit − debit): <b>%{net} ghei</b>, n° <b>%{pos}</b> in la classifica netta\nCredit attiv: <b>%{credit} ghei</b> · Debit attiv: <b>%{debt} ghei</b>"
     pvp: "Percentual de vittorie: <b>%{win_rate}</b>.\nSfide: <b>%{battles}</b>.\nVittorie: <b>%{wins}</b>.\nStriscia massima de vittorie: <b>%{win_streak}</b>.\nStriscia massima de sconfitte: <b>%{lose_streak}</b>.\nLonghezza guadagnada: <b>%{acquired} ghei</b>.\nLonghezza perduda: <b>%{lost} ghei</b>."
     notice: "Salut!"
     personal: "<i>Le tue statistiche personai:</i>\n— Numer de chat indoe te gioeughet: <b>%{chats}</b>.\n— Longhezza massima: <b>%{max_length}</b>.\n— Somma di bigoi in tucc i chat: <b>%{total_length}</b>."
