@@ -1,0 +1,9 @@
+# Pins the Rust toolchain to the same version the Dockerfile (and thus production) builds with.
+# rustup honours this file automatically in every environment - local, CI, and the Docker build -
+# so they can't drift onto a newer stable. This matters because the `metrics 0.24.1` dependency no
+# longer compiles on Rust 1.85+ (a tightening of raw-pointer trait-object lifetime casts), which is
+# what made the CI test job fail on a dependency rather than on our own code. Pinning here (instead
+# of in the workflow YAML) also keeps the fix in a file a plain push can touch, without needing a
+# token with the `workflow` scope.
+[toolchain]
+channel = "1.83.0"
