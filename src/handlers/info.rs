@@ -81,7 +81,11 @@ pub(crate) fn build_menu_keyboard(uid: UserId, lang_code: &LanguageCode) -> Inli
     InlineKeyboardMarkup::new(rows)
 }
 
-fn back_button(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardButton {
+/// The "🔙 Indree" button back to this menu - also reused by `statement::build_pagination_keyboard`
+/// and `p2p_loan::build_debiti_pagination_keyboard`, so it rides along on *every* page of those
+/// paginated sections (not just the one this module renders directly), regardless of whether the
+/// player reached them through this menu or through the standalone `/estratto`/`/debiti` commands.
+pub(crate) fn back_button(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardButton {
     let label = t!("inline.info_menu.back_button", locale = lang_code).to_string();
     let data = InfoCallbackData { uid, section: None }.to_data_string();
     InlineKeyboardButton::callback(label, data)
@@ -89,6 +93,16 @@ fn back_button(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardButton {
 
 fn build_back_keyboard(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![back_button(uid, lang_code)]])
+}
+
+/// Like `build_back_keyboard`, plus a leading refresh button that re-requests this exact
+/// `section` as-is - for sections whose content can actually change between views (Stats,
+/// Report), unlike the static ones (Syntax, Presentation) that `build_back_keyboard` alone
+/// still covers.
+fn build_refreshable_back_keyboard(uid: UserId, section: InfoSection, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
+    let refresh_data = InfoCallbackData { uid, section: Some(section) }.to_data_string();
+    let refresh_button = InlineKeyboardButton::callback("🔄", refresh_data);
+    InlineKeyboardMarkup::new(vec![vec![refresh_button, back_button(uid, lang_code)]])
 }
 
 #[inline]
@@ -106,28 +120,26 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery, repos: Repositorie
         // `Estratto` gets its own pagination row, since it's the one section whose content
         // doesn't fit in a single page - once the ⬅️/➡️ buttons are tapped, navigation continues
         // entirely through `statement::callback_handler` (a separate "stmt"-prefixed callback,
-        // already wired in `main.rs`), independent of this menu. The back-to-menu button still
-        // rides along as its own row underneath, so a paginated section never strands the player
-        // without a way back to the section picker (they'd otherwise have to re-open the listone).
+        // already wired in `main.rs`), independent of this menu. `build_pagination_keyboard`
+        // itself always adds the back-to-menu row underneath, so it survives every page turn too,
+        // not just this first render.
         Some(InfoSection::Estratto) => {
             metrics::CMD_STATEMENT_COUNTER.inline.inc();
             let chat_id = utils::resolve_callback_chat_id(&query, config.features.chats_merging);
             let from_refs = FromRefs(&query.from, &chat_id);
             let statement = statement::statement_impl(&repos, from_refs, Page::first()).await?;
-            let keyboard = statement::build_pagination_keyboard(data.uid, Page::first(), statement.has_more_pages)
-                .append_row(vec![back_button(data.uid, &lang_code)]);
+            let keyboard = statement::build_pagination_keyboard(data.uid, Page::first(), statement.has_more_pages, &lang_code);
             (statement.lines, keyboard)
         },
         // same reasoning as `Estratto` above: `Debiti` can also span more than one page, so it
         // gets its own pagination row (continuing through `p2p_loan::debiti_callback_handler`),
-        // plus the same back-to-menu row underneath.
+        // which also always carries the back-to-menu row underneath.
         Some(InfoSection::Debiti) => {
             metrics::CMD_P2P_LOAN_STATUS_COUNTER.inline.inc();
             let chat_id = utils::resolve_callback_chat_id(&query, config.features.chats_merging);
             let from_refs = FromRefs(&query.from, &chat_id);
             let status = p2p_loan::p2p_loan_status_impl(&repos, from_refs, Page::first()).await?;
-            let keyboard = p2p_loan::build_debiti_pagination_keyboard(data.uid, Page::first(), status.has_more_pages)
-                .append_row(vec![back_button(data.uid, &lang_code)]);
+            let keyboard = p2p_loan::build_debiti_pagination_keyboard(data.uid, Page::first(), status.has_more_pages, &lang_code);
             (status.lines, keyboard)
         },
         Some(section) => {
@@ -152,7 +164,14 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery, repos: Repositorie
                 },
                 InfoSection::Report => stats::chat_economy_report_impl(&repos, from_refs).await?,
             };
-            (body, build_back_keyboard(data.uid, &lang_code))
+            // Stats/Report reflect live game state, so they're worth refreshing in place; Syntax/
+            // Presentation are static help texts that never change, so a refresh button there
+            // would just be clutter - they keep the plain back-only keyboard.
+            let keyboard = match section {
+                InfoSection::Stats | InfoSection::Report => build_refreshable_back_keyboard(data.uid, section, &lang_code),
+                _ => build_back_keyboard(data.uid, &lang_code),
+            };
+            (body, keyboard)
         }
     };
 

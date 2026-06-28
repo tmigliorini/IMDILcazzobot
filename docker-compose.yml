@@ -46,6 +46,7 @@ services:
       - ANNOUNCEMENT_MAX_SHOWS
       - ANNOUNCEMENT_EN
       - ANNOUNCEMENT_RU
+      - RATIONALIZE_MUTUAL_DEBTS
       - BOT_TEXT_DIR=/bot-text
     volumes:
       - ./bot-text:/bot-text:ro

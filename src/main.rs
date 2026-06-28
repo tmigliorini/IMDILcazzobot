@@ -118,6 +118,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let me = bot.get_me().await?;
     let repos = repo::Repositories::new(&db_conn, &app_config);
+
+    // one-off retrofit of mutual-debt netting onto debts that predate the on-creation netting:
+    // gated by an env flag so it only runs on the deploy that's meant to clean up history, and
+    // idempotent anyway (a second run finds nothing left to net - see
+    // `P2PLoans::rationalize_all_mutual_debts`). Set RATIONALIZE_MUTUAL_DEBTS=true for that one
+    // deploy, then drop it.
+    if std::env::var("RATIONALIZE_MUTUAL_DEBTS").map(|v| v == "true" || v == "1").unwrap_or(false) {
+        match repos.p2p_loans.rationalize_all_mutual_debts().await {
+            Ok((pairs, cancelled)) => log::info!("mutual-debt rationalization done: netted {pairs} pair(s), cancelled {cancelled} ghei of gross debt"),
+            Err(e) => log::error!("mutual-debt rationalization failed: {e}"),
+        }
+    }
+
     let perks = handlers::perks::all(&db_conn, &app_config);
     let incrementor = handlers::utils::Incrementor::from_env(&repos.dicks, perks);
     let help_context = config::build_context_for_help_messages(me, &incrementor, &handlers::ORIGINAL_BOT_USERNAMES)?;

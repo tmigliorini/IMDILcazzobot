@@ -84,6 +84,7 @@ commands:
     results:
       summary: "🇮🇹 <b>Tassa del dì!</b>\n\nGh'è staa tolt:\n%{paid}\n\nGh'è staa donaa:\n%{received}\n\nTotal redistribuii: <b>%{pool} ghei</b>."
       paid_line: "➖ <b>%{name}</b>: <b>%{amount} ghei</b>"
+      paid_line_with_debt: "➖ <b>%{name}</b>: <b>%{amount} ghei</b> (+<b>%{debt}</b> a debit de tassa)"
       received_line: "➕ <b>%{name}</b>: <b>%{amount} ghei</b>"
     errors:
       disabled: "Sta funzion chì l'è minga configurada."
@@ -129,21 +130,22 @@ commands:
       target_mismatch: "I dò part d'on combo deven vess mirade a la midema persona, o a nissuna!"
       same_person: "Te poeudet no fa on combo cont te midemm!"
       not_target: "Sto combo chì l'è minga per tì!"
-      expired: "Sto combo chì el gh'è pussee no (forsi l'è scadüü, o el bot l'è staa reavviaa) — mandel danoeuv!"
+      expired: "Sto combo chì el gh'è pussee no, forsi l'è scadüü o el bot l'è staa reavviaa — mandel danoeuv!"
   debiti:
     description: "Varda a che pont hinn i tò prestit"
     no_loans: "Te gh'hee nissun prestit aviert in sta chat chì, nè de chì nè de là!"
     as_borrower:
       title: "📥 <i>Quell che te gh'hee de restituì:</i>"
-      line: "— a <b>%{name}</b>: <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
+      group_header: "— a <b>%{name}</b>, in total <b>%{total} ghei</b>:"
     as_lender:
       title: "📤 <i>Quell che te spetta de incassà:</i>"
-      line: "— de <b>%{name}</b>: <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
-    breakdown_line: "    capital <b>%{principal} ghei</b> + interess <b>%{interest} ghei</b> (<b>%{rate}%</b>)"
+      group_header: "— de <b>%{name}</b>, in total <b>%{total} ghei</b>:"
+    loan_line: "    <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b> · <i>%{datetime}</i>"
+    breakdown_line: "        capital <b>%{principal} ghei</b> + interess <b>%{interest} ghei</b> al <b>%{rate}%</b>"
     tax_debt:
       title: "🇮🇹 <i>Debit de tassa sui interess:</i>"
-      line: "— <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
-      line_with_origin: "— <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress} (del prestit cont <b>%{name}</b>)"
+      line: "— <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b>"
+      line_with_origin: "— <b>%{debt} ghei</b> su <b>%{original_debt}</b> · ripagaa al <b>%{pct}%</b>, del prestit cont <b>%{name}</b>"
     totals:
       title: "📊 <i>Total:</i>"
       line: "Te gh'hee de dà in total <b>%{owed_by_me} ghei</b>, e te spetta de incassà <b>%{owed_to_me} ghei</b>."
@@ -239,7 +241,7 @@ inline:
       loan: "✡️ In meno? Tö sü on prestit!"
       tax: "🇮🇹 Tassa"
       info: "ℹ️ Informazion"
-      wizard: "🇳🇬 Imbroj (combo, import liber)"
+      wizard: "🇳🇬 Imbroja i pirla con propost complicaa"
       pvp: "🎰 Sfida i alter cont una posta de %{bet} ghei!"
       donate: "💰 Dona %{amount} ghei a quaivun!"
       donate_pull: "💰 Ciama %{amount} ghei de quaivun!"
@@ -296,11 +298,11 @@ wizard:
   back_button: "🔙 Indree"
   cancel_button: "❌ Annulla"
   cancelled: "🧙 Operazion annullada."
-  leg_label: " (azion %{n})"
+  leg_label: " — azion %{n}"
   mode:
-    text: "🧙 Vœuret fa on'azion singola o on combo (dò azion insema)?"
+    text: "🧙 Vœuret fa on'azion singola o on combo de dò azion insema?"
     single: "1️⃣ Azion singola"
-    combo: "2️⃣ Combo (dò azion)"
+    combo: "2️⃣ Combo de dò azion"
   kind:
     text: "Che tipo de azion?"
     pvp: "🎰 Sfida"
@@ -315,13 +317,13 @@ wizard:
     text: "Quanti ghei?"
     current: "%{sign}\nImport: <b>%{amount}</b> ghei"
   prob:
-    text: "Probabilità de vittoria personalizada (lassa 'Standard' per 50/50, o basada sui skill se l'è attiva)?"
+    text: "Probabilità de vittoria personalizada — lassa 'Standard' per 50/50, o basada sui skill se l'è attiva?"
     current: "Probabilità: <b>%{amount}</b>%"
     standard: "🎲 Standard"
   rate:
-    text: "Tasso d'interess personalizaa (lassa 'Default' per quell configuraa)?"
+    text: "Tasso d'interess personalizaa — lassa 'Default' per quell configuraa?"
     current: "Tasso: <b>%{amount}</b>%"
-    default: "💰 Default (%{rate}%)"
+    default: "💰 Default — %{rate}%"
     positive: "➕ Positiv"
     negative: "➖ Negativ"
   target:
@@ -334,6 +336,6 @@ wizard:
   errors:
     invalid_amount: "⚠️ Gh'è quaicoss che l'è minga valid in sta offerta chì."
     amount_must_be_positive: "⚠️ L'import el gh'ha de vess pussee grand de 0."
-    invalid_probability: "⚠️ La probabilità dev vess tra 0 e 100 (esclüs)."
-    rate_too_high: "⚠️ Sto tasso chì (massim ±1000%) l'è minga valid per st'import chì: preuva on import o on tasso pussee piscinin."
+    invalid_probability: "⚠️ La probabilità dev vess tra 0 e 100, esclüs."
+    rate_too_high: "⚠️ Sto tasso chì, massim ±1000%, l'è minga valid per st'import chì: preuva on import o on tasso pussee piscinin."
     finalize_failed: "⚠️ Gh'è staa on problema a salvà l'offerta. Toeucca danoeuv '✅ Creala!' per riprovà."

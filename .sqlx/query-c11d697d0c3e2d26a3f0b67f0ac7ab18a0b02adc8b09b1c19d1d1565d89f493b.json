@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pl.lender_uid AS \"counterparty_uid!\", u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest, pl.created_at\n                    FROM P2P_Loans pl\n                    JOIN Users u ON u.uid = pl.lender_uid\n                    WHERE pl.borrower_uid = $1 AND\n                    pl.chat_id = (SELECT id FROM Chats WHERE chat_id = $2::bigint OR chat_instance = $2::text)\n                    AND pl.repaid_at IS NULL\n                    ORDER BY u.name ASC, pl.created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "counterparty_uid!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "counterparty_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "debt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "payout_ratio",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 4,
+        "name": "original_principal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "original_interest",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c11d697d0c3e2d26a3f0b67f0ac7ab18a0b02adc8b09b1c19d1d1565d89f493b"
+}

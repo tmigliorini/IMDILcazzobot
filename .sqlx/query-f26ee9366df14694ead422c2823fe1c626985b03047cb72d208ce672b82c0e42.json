@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT a.chat_id AS \"chat_id!\", a.borrower_uid AS \"low!\", a.lender_uid AS \"high!\"\n                FROM P2P_Loans a\n                JOIN P2P_Loans b\n                    ON a.chat_id = b.chat_id\n                    AND a.borrower_uid = b.lender_uid\n                    AND a.lender_uid = b.borrower_uid\n                    AND a.repaid_at IS NULL AND b.repaid_at IS NULL\n                WHERE a.borrower_uid < a.lender_uid",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chat_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "low!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "high!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f26ee9366df14694ead422c2823fe1c626985b03047cb72d208ce672b82c0e42"
+}

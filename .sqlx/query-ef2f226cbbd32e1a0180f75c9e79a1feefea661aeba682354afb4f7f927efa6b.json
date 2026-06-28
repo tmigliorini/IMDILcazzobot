@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, debt, remaining_principal, remaining_interest, false AS \"dirty!\"\n                FROM P2P_Loans\n                WHERE chat_id = $1 AND borrower_uid = $2 AND lender_uid = $3 AND repaid_at IS NULL\n                ORDER BY created_at ASC, id ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "debt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "remaining_principal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "remaining_interest",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "dirty!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "ef2f226cbbd32e1a0180f75c9e79a1feefea661aeba682354afb4f7f927efa6b"
+}

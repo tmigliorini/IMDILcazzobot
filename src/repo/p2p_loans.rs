@@ -61,29 +61,35 @@ impl TryFrom<P2PLoanObligationEntity> for P2PLoanObligation {
 /// these never change, so `/debiti` can show how much of the loan has been repaid so far.
 #[derive(Debug)]
 pub struct P2PLoanStatus {
+    pub counterparty_uid: i64,
     pub counterparty_name: String,
     pub debt: i32,
     pub payout_ratio: f32,
     pub original_principal: i32,
     pub original_interest: i32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 struct P2PLoanStatusEntity {
+    counterparty_uid: i64,
     counterparty_name: String,
     debt: i32,
     payout_ratio: f32,
     original_principal: i32,
     original_interest: i32,
+    created_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl From<P2PLoanStatusEntity> for P2PLoanStatus {
     fn from(value: P2PLoanStatusEntity) -> Self {
         Self {
+            counterparty_uid: value.counterparty_uid,
             counterparty_name: value.counterparty_name,
             debt: value.debt,
             payout_ratio: value.payout_ratio,
             original_principal: value.original_principal,
             original_interest: value.original_interest,
+            created_at: value.created_at,
         }
     }
 }
@@ -148,7 +154,7 @@ impl P2PLoans {
     /// order.
     pub async fn get_active_loans_as_borrower(&self, borrower: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Vec<P2PLoanStatus>> {
         sqlx::query_as!(P2PLoanStatusEntity,
-            r#"SELECT u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest
+            r#"SELECT pl.lender_uid AS "counterparty_uid!", u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest, pl.created_at
                     FROM P2P_Loans pl
                     JOIN Users u ON u.uid = pl.lender_uid
                     WHERE pl.borrower_uid = $1 AND
@@ -166,7 +172,7 @@ impl P2PLoans {
     /// grouped by borrower name (oldest first within a group) - "what's still owed to me".
     pub async fn get_active_loans_as_lender(&self, lender: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Vec<P2PLoanStatus>> {
         sqlx::query_as!(P2PLoanStatusEntity,
-            r#"SELECT u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest
+            r#"SELECT pl.borrower_uid AS "counterparty_uid!", u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest, pl.created_at
                     FROM P2P_Loans pl
                     JOIN Users u ON u.uid = pl.borrower_uid
                     WHERE pl.lender_uid = $1 AND
@@ -299,6 +305,166 @@ impl P2PLoans {
         Ok(split)
     }
 
+    /// Cancels mutual debt between two players in a chat: when each owes the other, the overlapping
+    /// amount is settled directly (FIFO, oldest loan on each side first), leaving only the net
+    /// difference - so two friends who keep lending back and forth don't accumulate a pile of
+    /// gross obligations that would just net out at repayment anyway. Returns how many ghei were
+    /// cancelled (0 if there was nothing to net).
+    ///
+    /// This is economically neutral and moves no length: the principal of every loan already
+    /// changed hands at creation, and the eventual equilibrium is identical whether the loans are
+    /// repaid gross or net (the larger debtor ends up paying exactly the difference either way).
+    /// So nothing is credited/debited and nothing is logged to the Ledger - this only rewrites the
+    /// outstanding `debt`/`remaining_*` of the affected rows (interest drained first, mirroring
+    /// `split_payment`), marking a row repaid once its debt reaches 0. Interest-tax debts
+    /// (`LoanInterestTaxDebts`) are deliberately left untouched: they're a separate obligation to
+    /// the chat's poorest, already in flight, not a debt between these two players.
+    pub async fn net_mutual_debts(&self, chat_internal_id: i64, uid1: UserId, uid2: UserId) -> anyhow::Result<u32> {
+        let mut tx = self.pool.begin().await?;
+        // "uid1 owes uid2" = rows where uid1 is the borrower and uid2 the lender, and vice versa.
+        let mut owed_1_to_2 = Self::fetch_directed_active_loans(&mut tx, chat_internal_id, uid1, uid2).await?;
+        let mut owed_2_to_1 = Self::fetch_directed_active_loans(&mut tx, chat_internal_id, uid2, uid1).await?;
+
+        let mut cancelled: u32 = 0;
+        let (mut i, mut j) = (0usize, 0usize);
+        while i < owed_1_to_2.len() && j < owed_2_to_1.len() {
+            let amount = owed_1_to_2[i].debt.min(owed_2_to_1[j].debt);
+            if amount <= 0 {
+                // a defensive guard against a zero/negative-debt active row (shouldn't exist) -
+                // skip whichever side is exhausted so the loop can still terminate.
+                if owed_1_to_2[i].debt <= 0 { i += 1 }
+                if owed_2_to_1[j].debt <= 0 { j += 1 }
+                continue
+            }
+            owed_1_to_2[i].drain(amount);
+            owed_2_to_1[j].drain(amount);
+            cancelled += amount as u32;
+            if owed_1_to_2[i].debt == 0 { i += 1 }
+            if owed_2_to_1[j].debt == 0 { j += 1 }
+        }
+
+        for loan in owed_1_to_2.iter().chain(owed_2_to_1.iter()).filter(|l| l.dirty) {
+            sqlx::query!(
+                "UPDATE P2P_Loans SET debt = $2, remaining_principal = $3, remaining_interest = $4,
+                    repaid_at = CASE WHEN $2 = 0 THEN now() ELSE repaid_at END
+                 WHERE id = $1",
+                loan.id, loan.debt, loan.remaining_principal, loan.remaining_interest)
+                .execute(&mut *tx)
+                .await
+                .map_err(Into::into)
+                .and_then(ensure_only_one_row_updated)
+                .context(format!("couldn't apply netting to p2p loan #{}", loan.id))?;
+        }
+        tx.commit().await?;
+        Ok(cancelled)
+    }
+
+    async fn fetch_directed_active_loans(tx: &mut sqlx::Transaction<'_, Postgres>, chat_internal_id: i64, borrower: UserId, lender: UserId) -> anyhow::Result<Vec<NettableLoan>> {
+        sqlx::query_as!(NettableLoan,
+            r#"SELECT id, debt, remaining_principal, remaining_interest, false AS "dirty!"
+                FROM P2P_Loans
+                WHERE chat_id = $1 AND borrower_uid = $2 AND lender_uid = $3 AND repaid_at IS NULL
+                ORDER BY created_at ASC, id ASC"#,
+            chat_internal_id, borrower.0 as i64, lender.0 as i64)
+            .fetch_all(&mut **tx)
+            .await
+            .context(format!("couldn't fetch active loans from {borrower} to {lender} in chat #{chat_internal_id}"))
+    }
+
+    /// Every distinct unordered pair of players who currently owe each other something in some
+    /// chat - the input to a one-off rationalization that nets all pre-existing mutual debt down
+    /// (see `net_mutual_debts`). Each pair is returned once, with `uid1 < uid2`.
+    pub async fn mutual_debt_pairs(&self) -> anyhow::Result<Vec<(i64, UserId, UserId)>> {
+        let rows = sqlx::query!(
+            r#"SELECT DISTINCT a.chat_id AS "chat_id!", a.borrower_uid AS "low!", a.lender_uid AS "high!"
+                FROM P2P_Loans a
+                JOIN P2P_Loans b
+                    ON a.chat_id = b.chat_id
+                    AND a.borrower_uid = b.lender_uid
+                    AND a.lender_uid = b.borrower_uid
+                    AND a.repaid_at IS NULL AND b.repaid_at IS NULL
+                WHERE a.borrower_uid < a.lender_uid"#)
+            .fetch_all(&self.pool)
+            .await
+            .context("couldn't enumerate mutual debt pairs")?;
+        Ok(rows.into_iter()
+            .map(|r| (r.chat_id, UserId(r.low as u64), UserId(r.high as u64)))
+            .collect())
+    }
+
+    /// One-off cleanup that nets every pre-existing mutual-debt pair across all chats down to its
+    /// difference (see `net_mutual_debts`) - for retrofitting the on-creation netting onto debts
+    /// that were taken on before it existed. Idempotent: once everything's netted there are no
+    /// mutual pairs left, so a second run is a no-op. Returns `(pairs_netted, ghei_cancelled)`.
+    pub async fn rationalize_all_mutual_debts(&self) -> anyhow::Result<(u32, u32)> {
+        let pairs = self.mutual_debt_pairs().await?;
+        let mut pairs_netted = 0;
+        let mut total_cancelled = 0;
+        for (chat_internal_id, uid1, uid2) in pairs {
+            let cancelled = self.net_mutual_debts(chat_internal_id, uid1, uid2).await?;
+            if cancelled > 0 {
+                pairs_netted += 1;
+                total_cancelled += cancelled;
+            }
+        }
+        Ok((pairs_netted, total_cancelled))
+    }
+
+}
+
+/// A loan row being mutated in memory during `net_mutual_debts`, before the change is flushed.
+struct NettableLoan {
+    id: i32,
+    debt: i32,
+    remaining_principal: i32,
+    remaining_interest: i32,
+    /// whether `drain` has actually touched this row, so only changed rows get an UPDATE.
+    dirty: bool,
+}
+
+impl NettableLoan {
+    /// Cancels `amount` of this loan's debt, draining interest before principal (mirroring
+    /// `split_payment`), keeping the `debt = remaining_principal + remaining_interest` invariant.
+    fn drain(&mut self, amount: i32) {
+        let interest_cut = amount.min(self.remaining_interest);
+        self.remaining_interest -= interest_cut;
+        self.remaining_principal -= amount - interest_cut;
+        self.debt -= amount;
+        self.dirty = true;
+    }
+}
+
+#[cfg(test)]
+mod test_nettable_loan {
+    use super::NettableLoan;
+
+    fn loan(principal: i32, interest: i32) -> NettableLoan {
+        NettableLoan { id: 1, debt: principal + interest, remaining_principal: principal, remaining_interest: interest, dirty: false }
+    }
+
+    #[test]
+    fn draining_takes_interest_first_then_principal() {
+        let mut l = loan(47, 3);
+        l.drain(30); // 3 of interest, then 27 of principal
+        assert_eq!((l.debt, l.remaining_principal, l.remaining_interest), (20, 20, 0));
+        assert!(l.dirty);
+        // the invariant debt == principal + interest holds throughout.
+        assert_eq!(l.debt, l.remaining_principal + l.remaining_interest);
+    }
+
+    #[test]
+    fn fully_draining_zeroes_everything() {
+        let mut l = loan(40, 10);
+        l.drain(50);
+        assert_eq!((l.debt, l.remaining_principal, l.remaining_interest), (0, 0, 0));
+    }
+
+    #[test]
+    fn a_chunk_within_interest_leaves_principal_untouched() {
+        let mut l = loan(100, 12);
+        l.drain(5);
+        assert_eq!((l.debt, l.remaining_principal, l.remaining_interest), (107, 100, 7));
+    }
 }
 
 /// How a single repayment chunk of `magnitude` splits across a loan row's two pools, draining

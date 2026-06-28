@@ -8,7 +8,7 @@ use crate::handlers::debt_settlement::{settle_gain_against_debts, SettlementOutc
 use crate::{metrics, reply_html};
 use crate::config::AppConfig;
 use crate::domain::{LanguageCode, Username};
-use crate::repo::{ChatIdPartiality, Dick, Repositories};
+use crate::repo::{ChatIdPartiality, Repositories};
 
 #[derive(BotCommands, Clone)]
 #[command(rename_rule = "lowercase")]
@@ -43,9 +43,13 @@ pub(crate) async fn tax_impl(repos: &Repositories, config: &AppConfig, from_refs
     // top_n players to tax, +1 for the benchmark ("next best") player just below them,
     // bottom_n players to receive the redistributed pool, +1 for THEIR benchmark (the player
     // just above them) - all four groups disjoint.
-    // `get_top`'s SQL binds this as `i32` under the hood, so the sentinel "fetch everyone" value
-    // must stay within `i32::MAX`, not `u32::MAX` (which would wrap negative and break LIMIT).
-    let players = repos.dicks.get_top(&chat_id_kind, 0, i32::MAX as u32).await?;
+    // The ranking (and the tax base, and the redistribution need-weighting) is the *net* position
+    // - ghei plus net credit/debit from loans, i.e. the second `/top` leaderboard - rather than
+    // plain ghei, so someone sitting on a mountain of outstanding credit is taxed for it even if
+    // their raw balance looks modest. `get_top_by_net`'s SQL binds the limit as `i32`, so the
+    // "fetch everyone" sentinel must stay within `i32::MAX`, not `u32::MAX` (which would wrap
+    // negative and break LIMIT).
+    let players = repos.dicks.get_top_by_net(&chat_id_kind, 0, i32::MAX as u32).await?;
     let needed = top_n + bottom_n + 2;
     if players.len() < needed {
         return Ok(t!("commands.tax.errors.not_enough_players", locale = &lang_code,
@@ -53,34 +57,52 @@ pub(crate) async fn tax_impl(repos: &Repositories, config: &AppConfig, from_refs
     }
 
     let top = &players[..top_n];
-    let top_benchmark_length = players[top_n].length;
+    let top_benchmark_net = players[top_n].net;
     let bottom = &players[players.len() - bottom_n..];
-    let bottom_benchmark_length = players[players.len() - bottom_n - 1].length;
+    let bottom_benchmark_net = players[players.len() - bottom_n - 1].net;
 
-    // each taxed player's "distance" above the benchmark just below the taxed group;
+    // each taxed player's "distance" above the benchmark just below the taxed group (by net);
     // normalized across the group, so a dominant outlier ends up paying close to the full
     // max_rate while someone close to the pack pays close to nothing.
     let distances: Vec<f64> = top.iter()
-        .map(|p| (p.length - top_benchmark_length).max(0) as f64)
+        .map(|p| (p.net - top_benchmark_net).max(0) as f64)
         .collect();
     let distance_sum: f64 = distances.iter().sum();
 
     let mut deltas: Vec<(UserId, i32)> = Vec::with_capacity(top_n + bottom_n);
     let mut paid_lines = Vec::with_capacity(top_n);
+    // tax that can't be paid in cash right now (the player's actual ghei < their net-based tax)
+    // becomes a tax debt, collected gradually from future growth exactly like a loan-interest tax
+    // debt - applied below, only once the day's tax is confirmed as not-already-done.
+    let mut debt_parts: Vec<(UserId, u16)> = Vec::with_capacity(top_n);
     let mut pool: i64 = 0;
     for (player, &distance) in top.iter().zip(distances.iter()) {
         let weight = if distance_sum > 0.0 { distance / distance_sum } else { 0.0 };
-        let amount = ((player.length as f64) * config.tax.max_rate * weight).floor() as i32;
-        let amount = amount.clamp(0, player.length.max(0));
-        pool += amount as i64;
-        deltas.push((player.owner_uid.into(), -amount));
-        paid_lines.push(t!("commands.tax.results.paid_line", locale = &lang_code,
-            name = Username::new(player.owner_name.clone()).escaped(), amount = amount).to_string());
+        // the tax is computed on the net position, but can only be *collected* in cash up to the
+        // player's actual ghei (`raw_length`); whatever's left over becomes a tax debt.
+        let computed = ((player.net.max(0) as f64) * config.tax.max_rate * weight).floor() as i32;
+        let computed = computed.max(0);
+        let charge_now = computed.min(player.raw_length.max(0));
+        let debt_part = (computed - charge_now).clamp(0, u16::MAX as i32);
+        pool += charge_now as i64;
+        deltas.push((player.owner_uid.into(), -charge_now));
+        let name = Username::new(player.owner_name.clone()).escaped();
+        if debt_part > 0 {
+            debt_parts.push((player.owner_uid.into(), debt_part as u16));
+            paid_lines.push(t!("commands.tax.results.paid_line_with_debt", locale = &lang_code,
+                name = name, amount = charge_now, debt = debt_part).to_string());
+        } else {
+            paid_lines.push(t!("commands.tax.results.paid_line", locale = &lang_code,
+                name = name, amount = charge_now).to_string());
+        }
     }
 
     // symmetric to the top, via the shared bottom-redistribution formula (also used to tax
-    // p2p loan interest - see `redistribute_to_bottom`).
-    let bottom_deltas = redistribute_to_bottom(bottom, bottom_benchmark_length, pool)
+    // p2p loan interest - see `redistribute_to_bottom`); recipients and their need-weighting are
+    // by net position too. Only the cash actually collected now (`pool`) is redistributed
+    // immediately; the deferred tax-debt parts redistribute later, as they're repaid.
+    let bottom_metrics: Vec<(UserId, i32)> = bottom.iter().map(|p| (p.owner_uid.into(), p.net)).collect();
+    let bottom_deltas = redistribute_to_bottom(&bottom_metrics, bottom_benchmark_net, pool)
         .expect("bottom_n and the benchmark were already validated above");
     let mut received_lines = Vec::with_capacity(bottom_n);
     for (player, &(_, share)) in bottom.iter().zip(bottom_deltas.iter()) {
@@ -91,6 +113,15 @@ pub(crate) async fn tax_impl(repos: &Repositories, config: &AppConfig, from_refs
 
     let applied = repos.tax.tax_chat(chat_id, &deltas).await?;
     let text = if applied {
+        // the day's tax went through (not already done), so now turn each unpayable remainder into
+        // a real tax-debt obligation - same kind a p2p loan's interest creates, repaid gradually
+        // and redistributed to the bottom as it's collected (see `LoanInterestTaxDebts`).
+        for &(uid, debt) in &debt_parts {
+            if let Err(e) = repos.loan_interest_tax_debts.create(chat_id, uid, debt, None).await {
+                log::error!("couldn't create a tax debt of {debt} for {uid} in {chat_id}: {e}");
+            }
+        }
+
         // top_n payers and bottom_n recipients share one pool with no 1:1 relationship between a
         // specific payer and a specific recipient (unlike a single tax-debt installment's
         // redistribution - see `crate::handlers::debt_settlement::redistribute_tax_payout`), so
@@ -134,23 +165,26 @@ pub(crate) async fn tax_impl(repos: &Repositories, config: &AppConfig, from_refs
     Ok(text)
 }
 
-/// Splits `pool` among `bottom` proportionally to how far below `benchmark_length` (the player
-/// just above this group) each of them is - the neediest gets the largest share, and players
-/// equally needy (including a tie across the whole group) split evenly. `None` if `bottom` is
-/// empty, since there's nobody to receive a share. The shares always sum to exactly `pool` - see
-/// the largest-remainder step below, which hands out whatever flooring would otherwise lose.
-pub(crate) fn redistribute_to_bottom(bottom: &[Dick], benchmark_length: i32, pool: i64) -> Option<Vec<(UserId, i32)>> {
-    if bottom.is_empty() {
+/// Splits `pool` among `recipients` proportionally to how far below `benchmark` (the player just
+/// above this group) each of them is - the neediest gets the largest share, and players equally
+/// needy (including a tie across the whole group) split evenly. Each recipient is `(uid, metric)`,
+/// where `metric` is whatever ranking figure the caller redistributes by: plain length for a
+/// tax-debt installment (see `debt_settlement::redistribute_tax_payout`), or net position for the
+/// daily `/tax` (see `tax_impl`). `None` if `recipients` is empty, since there's nobody to receive
+/// a share. The shares always sum to exactly `pool` - see the largest-remainder step below, which
+/// hands out whatever flooring would otherwise lose.
+pub(crate) fn redistribute_to_bottom(recipients: &[(UserId, i32)], benchmark: i32, pool: i64) -> Option<Vec<(UserId, i32)>> {
+    if recipients.is_empty() {
         return None
     }
-    let need: Vec<f64> = bottom.iter()
-        .map(|p| (benchmark_length - p.length).max(0) as f64)
+    let need: Vec<f64> = recipients.iter()
+        .map(|&(_, metric)| (benchmark - metric).max(0) as f64)
         .collect();
     let need_sum: f64 = need.iter().sum();
 
     let raw_shares: Vec<f64> = need.iter()
         .map(|&need| {
-            let weight = if need_sum > 0.0 { need / need_sum } else { 1.0 / bottom.len() as f64 };
+            let weight = if need_sum > 0.0 { need / need_sum } else { 1.0 / recipients.len() as f64 };
             pool as f64 * weight
         })
         .collect();
@@ -162,7 +196,7 @@ pub(crate) fn redistribute_to_bottom(bottom: &[Dick], benchmark_length: i32, poo
     // method), so the total redistributed always matches `pool` exactly instead of quietly
     // losing a few ghei to rounding every time this runs.
     let mut leftover = pool as i32 - shares.iter().sum::<i32>();
-    let mut by_fraction: Vec<usize> = (0..bottom.len()).collect();
+    let mut by_fraction: Vec<usize> = (0..recipients.len()).collect();
     by_fraction.sort_by(|&a, &b| {
         let frac = |i: usize| raw_shares[i] - raw_shares[i].floor();
         frac(b).partial_cmp(&frac(a)).unwrap_or(std::cmp::Ordering::Equal)
@@ -175,25 +209,16 @@ pub(crate) fn redistribute_to_bottom(bottom: &[Dick], benchmark_length: i32, poo
         leftover -= 1;
     }
 
-    Some(bottom.iter().zip(shares).map(|(player, share)| (player.owner_uid.into(), share)).collect())
+    Some(recipients.iter().zip(shares).map(|(&(uid, _), share)| (uid, share)).collect())
 }
 
 #[cfg(test)]
 mod test {
     use teloxide::types::UserId;
-    use crate::repo::Dick;
     use super::redistribute_to_bottom;
 
-    fn dick(uid: i64, length: i32) -> Dick {
-        Dick {
-            length,
-            owner_uid: uid.into(),
-            owner_name: uid.to_string(),
-            grown_at: chrono::Utc::now(),
-            position: None,
-            battles_total: 0,
-            battles_won: 0,
-        }
+    fn rec(uid: u64, metric: i32) -> (UserId, i32) {
+        (UserId(uid), metric)
     }
 
     #[test]
@@ -203,7 +228,7 @@ mod test {
 
     #[test]
     fn neediest_gets_the_largest_share() {
-        let bottom = [dick(1, 0), dick(2, 5), dick(3, 8)];
+        let bottom = [rec(1, 0), rec(2, 5), rec(3, 8)];
         let deltas = redistribute_to_bottom(&bottom, 10, 100).expect("there are recipients");
         // raw shares: 58.82, 29.41, 11.76 - flooring alone would lose 2 ghei (58+29+11=98); the
         // largest-remainder step hands them to the two biggest fractions (.82 and .76) instead.
@@ -216,7 +241,7 @@ mod test {
 
     #[test]
     fn a_tie_splits_evenly() {
-        let bottom = [dick(1, 10), dick(2, 10), dick(3, 10)];
+        let bottom = [rec(1, 10), rec(2, 10), rec(3, 10)];
         let deltas = redistribute_to_bottom(&bottom, 10, 90).expect("there are recipients");
         assert_eq!(deltas, vec![(UserId(1), 30), (UserId(2), 30), (UserId(3), 30)]);
     }
@@ -225,7 +250,7 @@ mod test {
     fn no_ghei_are_ever_lost_to_rounding() {
         // an awkward pool/group-size combo that floors to less than the pool on every member if
         // the remainder isn't redistributed (100 split 3 ways at equal need: 33.33 each).
-        let bottom = [dick(1, 10), dick(2, 10), dick(3, 10)];
+        let bottom = [rec(1, 10), rec(2, 10), rec(3, 10)];
         let deltas = redistribute_to_bottom(&bottom, 10, 100).expect("there are recipients");
         let total: i32 = deltas.iter().map(|&(_, share)| share).sum();
         assert_eq!(total, 100, "the full pool must always be handed out, never partly lost to flooring");

@@ -59,12 +59,13 @@ pub async fn status_cmd_handler(bot: Bot, msg: Message, repos: Repositories) -> 
     metrics::CMD_P2P_LOAN_STATUS_COUNTER.chat.inc();
 
     let from = msg.from.as_ref().ok_or(anyhow!("no FROM field in the p2p loan status command handler"))?;
+    let lang_code = LanguageCode::from_user(from);
     let chat_id: ChatIdPartiality = msg.chat.id.into();
     let status = p2p_loan_status_impl(&repos, FromRefs(from, &chat_id), Page::first()).await?;
 
     let mut request = reply_html(bot, &msg, status.lines);
     if status.has_more_pages {
-        let keyboard = build_debiti_pagination_keyboard(from.id, Page::first(), status.has_more_pages);
+        let keyboard = build_debiti_pagination_keyboard(from.id, Page::first(), status.has_more_pages, &lang_code);
         request.reply_markup.replace(ReplyMarkup::InlineKeyboard(keyboard));
     }
     request.await.context(format!("failed for {msg:?}"))?;
@@ -120,26 +121,25 @@ pub(crate) async fn p2p_loan_status_impl(repos: &Repositories, from_refs: FromRe
     // every row is unambiguous now: a "borrower" row is genuinely owed by `from`, and a "lender"
     // row is genuinely owed to `from` - including the reciprocal row of a negative-rate loan
     // `from` themselves lent (see `repo::P2PLoans::lend`), which simply shows up here as an
-    // ordinary "borrower" row. Flattened into one ordered list of entries (each its own block,
-    // 1-2 lines), so they can be paged as a single sequence below the (always fully shown) totals;
-    // a section's title rides along with its first entry only.
+    // ordinary "borrower" row. Loans are grouped per counterparty (one header naming the person
+    // and the total still owed to/by them, then one indented line per individual loan), so the
+    // same name isn't repeated for every separate loan. Each group is its own pageable block; a
+    // section's title rides along with its first group only.
     let mut blocks = Vec::with_capacity(as_borrower.len() + as_lender.len() + tax_debts.len());
-    for (i, l) in as_borrower.iter().enumerate() {
-        let name = Username::new(l.counterparty_name.clone()).escaped();
-        let line = format_loan_status_line(&lang_code, "commands.debiti.as_borrower.line", name, l.debt, l.original_principal, l.original_interest);
+    for (i, group) in group_by_counterparty(&as_borrower).into_iter().enumerate() {
+        let block = format_loan_group(&lang_code, "as_borrower", group);
         blocks.push(if i == 0 {
-            format!("{}\n{line}", t!("commands.debiti.as_borrower.title", locale = &lang_code))
+            format!("{}\n{block}", t!("commands.debiti.as_borrower.title", locale = &lang_code))
         } else {
-            line
+            block
         });
     }
-    for (i, l) in as_lender.iter().enumerate() {
-        let name = Username::new(l.counterparty_name.clone()).escaped();
-        let line = format_loan_status_line(&lang_code, "commands.debiti.as_lender.line", name, l.debt, l.original_principal, l.original_interest);
+    for (i, group) in group_by_counterparty(&as_lender).into_iter().enumerate() {
+        let block = format_loan_group(&lang_code, "as_lender", group);
         blocks.push(if i == 0 {
-            format!("{}\n{line}", t!("commands.debiti.as_lender.title", locale = &lang_code))
+            format!("{}\n{block}", t!("commands.debiti.as_lender.title", locale = &lang_code))
         } else {
-            line
+            block
         });
     }
     // a tax debt has no single creditor (it's redistributed to whoever's at the bottom of the
@@ -147,12 +147,12 @@ pub(crate) async fn p2p_loan_status_impl(repos: &Repositories, from_refs: FromRe
     // traceable *origin*: the p2p loan whose interest produced it (`source_loan_id`), shown here
     // via the loan's other party's name when it's still resolvable.
     for (i, d) in tax_debts.iter().enumerate() {
-        let progress = format_debt_progress(d.amount_owed, d.original_debt);
+        let pct = repaid_pct(d.amount_owed, d.original_debt);
         let line = match &d.origin_counterparty_name {
             Some(name) => t!("commands.debiti.tax_debt.line_with_origin", locale = &lang_code,
-                debt = d.amount_owed, original_debt = d.original_debt, progress = progress, name = Username::new(name.clone()).escaped()).to_string(),
+                debt = d.amount_owed, original_debt = d.original_debt, pct = pct, name = Username::new(name.clone()).escaped()).to_string(),
             None => t!("commands.debiti.tax_debt.line", locale = &lang_code,
-                debt = d.amount_owed, original_debt = d.original_debt, progress = progress).to_string(),
+                debt = d.amount_owed, original_debt = d.original_debt, pct = pct).to_string(),
         };
         blocks.push(if i == 0 {
             format!("{}\n{line}", t!("commands.debiti.tax_debt.title", locale = &lang_code))
@@ -195,17 +195,23 @@ impl TryFrom<String> for DebitiCallbackData {
     }
 }
 
-pub(crate) fn build_debiti_pagination_keyboard(uid: UserId, page: Page, has_more_pages: bool) -> InlineKeyboardMarkup {
+/// Always carries a second row back to the Info menu (see `info::back_button`) underneath the
+/// pagination row, on *every* page - not just the first one reached from that menu - so paging
+/// through many loans never strands the player without a way back.
+pub(crate) fn build_debiti_pagination_keyboard(uid: UserId, page: Page, has_more_pages: bool, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
     let mut buttons = Vec::new();
     if page > 0 {
         let data = DebitiCallbackData { uid, page: page.0 - 1 }.to_data_string();
         buttons.push(InlineKeyboardButton::callback("⬅️", data));
     }
+    // re-requests this exact page as-is, for a fresher loan list without losing position.
+    let refresh_data = DebitiCallbackData { uid, page: page.0 }.to_data_string();
+    buttons.push(InlineKeyboardButton::callback("🔄", refresh_data));
     if has_more_pages {
         let data = DebitiCallbackData { uid, page: page.0 + 1 }.to_data_string();
         buttons.push(InlineKeyboardButton::callback("➡️", data));
     }
-    InlineKeyboardMarkup::new(vec![buttons])
+    InlineKeyboardMarkup::new(vec![buttons]).append_row(vec![crate::handlers::info::back_button(uid, lang_code)])
 }
 
 #[inline]
@@ -215,7 +221,7 @@ pub fn debiti_callback_filter(query: CallbackQuery) -> bool {
 
 pub async fn debiti_callback_handler(bot: Bot, query: CallbackQuery, repos: Repositories) -> HandlerResult {
     let data = DebitiCallbackData::parse(&query)?;
-    let (answer, _lang_code) = check_invoked_by_owner_and_get_answer_params!(bot, query, data.uid);
+    let (answer, lang_code) = check_invoked_by_owner_and_get_answer_params!(bot, query, data.uid);
 
     let edit_msg_req_params = callbacks::get_params_for_message_edit(&query)?;
     let chat_id_kind = edit_msg_req_params.clone().into();
@@ -223,7 +229,7 @@ pub async fn debiti_callback_handler(bot: Bot, query: CallbackQuery, repos: Repo
     let from_refs = FromRefs(&query.from, &chat_id_partiality);
     let page = Page(data.page);
     let status = p2p_loan_status_impl(&repos, from_refs, page).await?;
-    let keyboard = build_debiti_pagination_keyboard(data.uid, page, status.has_more_pages);
+    let keyboard = build_debiti_pagination_keyboard(data.uid, page, status.has_more_pages, &lang_code);
 
     match edit_msg_req_params {
         callbacks::EditMessageReqParamsKind::Chat(chat_id, message_id) => {
@@ -604,6 +610,13 @@ pub(crate) async fn p2p_loan_finish(p: &P2PLoanParams, acceptor: &UserInfo, inte
         p.repos.loan_interest_tax_debts.create(&p.chat_id, payer_id, core.tax, Some(core.interest_loan_id)).await?;
     }
 
+    // if these two already owed each other, settle the overlap on the spot so debts stay net, not
+    // gross (see `repo::P2PLoans::net_mutual_debts`). Best-effort: a failure leaves the loans
+    // merely un-netted (gross), never blocks the loan that already committed.
+    if let Err(e) = p.repos.p2p_loans.net_mutual_debts(internal_chat_id, core.lender_id, core.borrower_id).await {
+        log::error!("couldn't net mutual debts between {} and {} after a p2p loan: {e}", core.lender_id, core.borrower_id);
+    }
+
     let lender_info = get_user_info(&p.repos.users, core.lender_id, acceptor).await?;
     let borrower_info = get_user_info(&p.repos.users, core.borrower_id, acceptor).await?;
     let debt_clause = debt_clause(&p.lang_code, core.abs_amount, core.interest);
@@ -657,37 +670,56 @@ pub(crate) async fn p2p_loan_impl_accept(p: P2PLoanParams, proposer_id: UserId, 
     Ok(result)
 }
 
-/// A compact `<code>` progress bar plus the repaid percentage (e.g. `▓▓▓▓▓▓░░░░ 59%`), shared by
-/// every `/debiti` line so a player can tell at a glance how far along a loan or tax debt is,
-/// without having to do the original-vs-remaining math themselves. `original` is assumed > 0
-/// (always true here - see the migration that added `original_principal`/`original_interest`/
-/// `original_debt`: a loan/tax debt is never created with nothing owed).
-fn format_debt_progress(remaining: i32, original: i32) -> String {
-    const WIDTH: usize = 10;
+/// How much of a loan/tax debt has been repaid so far, as a whole-number percentage (e.g. `13`
+/// for "ripagaa al 13%"). Replaces the old `▓▓▓░░░` progress bar, which only added visual noise.
+/// `original` is assumed > 0 (always true here - see the migration that added
+/// `original_principal`/`original_interest`/`original_debt`: a loan/tax debt is never created with
+/// nothing owed).
+fn repaid_pct(remaining: i32, original: i32) -> i32 {
     let paid_ratio = (1.0 - remaining as f64 / original as f64).clamp(0.0, 1.0);
-    let filled = (paid_ratio * WIDTH as f64).round() as usize;
-    let bar: String = "▓".repeat(filled) + &"░".repeat(WIDTH - filled);
-    let percent = (paid_ratio * 100.0).round() as i32;
-    format!("<code>{bar}</code> {percent}%")
+    (paid_ratio * 100.0).round() as i32
 }
 
-/// One `/debiti` line for an actual P2P loan (as borrower or lender): names the counterparty,
-/// then the remaining/original debt with its progress bar, then - unless this is a pure
-/// reciprocal-discount row with no principal of its own (see `repo::P2PLoanObligation`'s docs) -
-/// a second, indented line breaking the original amount down into principal and interest, with
-/// the effective rate re-derived from them rather than stored separately (see the migration that
-/// added `original_principal`/`original_interest`).
-fn format_loan_status_line(lang_code: &LanguageCode, line_key: &str, name: String, debt: i32, original_principal: i32, original_interest: i32) -> String {
-    let original_debt = original_principal + original_interest;
-    let progress = format_debt_progress(debt, original_debt);
-    let main_line = t!(line_key, locale = lang_code, name = name, debt = debt, original_debt = original_debt, progress = progress).to_string();
-    if original_principal == 0 {
-        return main_line
+/// Groups a counterparty-name-sorted slice of loans into per-counterparty runs (preserving order),
+/// keyed by uid so two distinct people who happen to share a display name never silently merge.
+fn group_by_counterparty(loans: &[repo::P2PLoanStatus]) -> Vec<Vec<&repo::P2PLoanStatus>> {
+    let mut groups: Vec<Vec<&repo::P2PLoanStatus>> = Vec::new();
+    for loan in loans {
+        match groups.last_mut() {
+            Some(group) if group[0].counterparty_uid == loan.counterparty_uid => group.push(loan),
+            _ => groups.push(vec![loan]),
+        }
     }
-    let rate_pct = (original_interest as f64 / original_principal as f64 * 100.0).round() as i64;
-    let breakdown = t!("commands.debiti.breakdown_line", locale = lang_code,
-        principal = original_principal, rate = rate_pct, interest = original_interest).to_string();
-    format!("{main_line}\n{breakdown}")
+    groups
+}
+
+/// One `/debiti` block for all the loans between `from` and a single counterparty: a header naming
+/// that person and the grand total still owed to/by them, then one indented line per individual
+/// loan (remaining/original, repaid %, and when it was taken on), each optionally followed by a
+/// further-indented capital/interest breakdown - skipped for a pure reciprocal-discount row with
+/// no principal of its own (see `repo::P2PLoanObligation`'s docs). `side` is `as_borrower` or
+/// `as_lender`, selecting the header wording.
+fn format_loan_group(lang_code: &LanguageCode, side: &str, group: Vec<&repo::P2PLoanStatus>) -> String {
+    let name = Username::new(group[0].counterparty_name.clone()).escaped();
+    let total: i32 = group.iter().map(|l| l.debt).sum();
+    let header = t!(&format!("commands.debiti.{side}.group_header"), locale = lang_code, name = name, total = total).to_string();
+
+    let mut out = header;
+    for l in group {
+        let original_debt = l.original_principal + l.original_interest;
+        let pct = repaid_pct(l.debt, original_debt);
+        let datetime = l.created_at.with_timezone(&chrono_tz::Europe::Rome).format("%d/%m %H:%M").to_string();
+        out.push('\n');
+        out.push_str(&t!("commands.debiti.loan_line", locale = lang_code,
+            debt = l.debt, original_debt = original_debt, pct = pct, datetime = datetime).to_string());
+        if l.original_principal > 0 {
+            let rate_pct = (l.original_interest as f64 / l.original_principal as f64 * 100.0).round() as i64;
+            out.push('\n');
+            out.push_str(&t!("commands.debiti.breakdown_line", locale = lang_code,
+                principal = l.original_principal, rate = rate_pct, interest = l.original_interest).to_string());
+        }
+    }
+    out
 }
 
 /// The "who owes what" clause for a loan offer/result message: the borrower always owes the
@@ -726,50 +758,76 @@ pub(super) fn build_inline_keyboard_article_result(uid: UserId, lang_code: &Lang
 }
 
 #[cfg(test)]
-mod test_format_debt_progress {
-    use super::format_debt_progress;
+mod test_repaid_pct {
+    use super::repaid_pct;
 
     #[test]
-    fn an_untouched_debt_is_fully_empty() {
-        assert_eq!(format_debt_progress(100, 100), "<code>░░░░░░░░░░</code> 0%");
+    fn an_untouched_debt_is_zero_percent() {
+        assert_eq!(repaid_pct(100, 100), 0);
     }
 
     #[test]
-    fn a_fully_repaid_debt_is_fully_filled() {
-        assert_eq!(format_debt_progress(0, 100), "<code>▓▓▓▓▓▓▓▓▓▓</code> 100%");
+    fn a_fully_repaid_debt_is_a_hundred_percent() {
+        assert_eq!(repaid_pct(0, 100), 100);
     }
 
     #[test]
-    fn a_partial_repayment_fills_proportionally() {
-        // 41 repaid out of 100 -> 41% -> 4.1 bars, rounded to 4.
-        assert_eq!(format_debt_progress(59, 100), "<code>▓▓▓▓░░░░░░</code> 41%");
+    fn a_partial_repayment_rounds_to_the_nearest_percent() {
+        // 41 repaid out of 100 -> 41%.
+        assert_eq!(repaid_pct(59, 100), 41);
     }
 }
 
 #[cfg(test)]
-mod test_format_loan_status_line {
+mod test_format_loan_group {
     use crate::domain::LanguageCode;
-    use super::format_loan_status_line;
+    use crate::repo::P2PLoanStatus;
+    use super::{format_loan_group, group_by_counterparty};
 
     fn lmo() -> LanguageCode {
         LanguageCode::new("lmo".to_owned())
     }
 
+    fn loan(counterparty_uid: i64, name: &str, debt: i32, original_principal: i32, original_interest: i32) -> P2PLoanStatus {
+        P2PLoanStatus {
+            counterparty_uid, counterparty_name: name.to_owned(), debt, payout_ratio: 0.1,
+            original_principal, original_interest, created_at: chrono::Utc::now(),
+        }
+    }
+
     #[test]
     fn a_normal_loan_gets_a_breakdown_line_with_the_effective_rate() {
-        let line = format_loan_status_line(&lmo(), "commands.debiti.as_borrower.line", "Mario".to_owned(), 55, 100, 10);
-        assert!(line.contains('\n'), "a normal loan (principal > 0) must have a second, breakdown line: {line}");
-        assert!(line.contains("100"), "the original principal must appear: {line}");
-        assert!(line.contains("10%"), "the effective rate (10/100 = 10%) must appear: {line}");
-        assert!(line.contains("55"), "the remaining debt must appear: {line}");
+        let loans = vec![loan(1, "Mario", 55, 100, 10)];
+        let block = format_loan_group(&lmo(), "as_borrower", group_by_counterparty(&loans).remove(0));
+        assert!(block.contains("100"), "the original principal must appear: {block}");
+        assert!(block.contains("10%"), "the effective rate (10/100 = 10%) must appear: {block}");
+        assert!(block.contains("55"), "the remaining debt must appear: {block}");
     }
 
     #[test]
     fn a_pure_reciprocal_row_has_no_breakdown_line() {
         // a negative-rate loan's reciprocal row (see `repo::P2PLoanObligation`'s docs) has no
         // principal of its own - showing a "0 capital + X% rate" breakdown would be meaningless.
-        let line = format_loan_status_line(&lmo(), "commands.debiti.as_lender.line", "Mario".to_owned(), 12, 0, 35);
-        assert!(!line.contains('\n'), "a pure reciprocal row must be a single line: {line}");
+        let loans = vec![loan(1, "Mario", 12, 0, 35)];
+        let block = format_loan_group(&lmo(), "as_lender", group_by_counterparty(&loans).remove(0));
+        // just the header line and the single loan line - no further breakdown line.
+        assert_eq!(block.lines().count(), 2, "a pure reciprocal row must have only header + loan line: {block}");
+    }
+
+    #[test]
+    fn loans_to_the_same_person_share_one_header_with_the_grand_total() {
+        let loans = vec![loan(1, "Federico", 46, 50, 0), loan(1, "Federico", 42, 47, 0)];
+        let groups = group_by_counterparty(&loans);
+        assert_eq!(groups.len(), 1, "two loans to the same uid must form a single group");
+        let block = format_loan_group(&lmo(), "as_borrower", groups.into_iter().next().unwrap());
+        assert_eq!(block.matches("Federico").count(), 1, "the name must appear only once, in the header: {block}");
+        assert!(block.contains("88"), "the header must show the grand total 46+42=88: {block}");
+    }
+
+    #[test]
+    fn distinct_people_are_not_merged() {
+        let loans = vec![loan(1, "Federico", 10, 10, 0), loan(2, "LeoPoldo", 5, 5, 0)];
+        assert_eq!(group_by_counterparty(&loans).len(), 2);
     }
 }
 

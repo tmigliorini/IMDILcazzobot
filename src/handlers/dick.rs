@@ -333,6 +333,9 @@ pub fn build_pagination_keyboard(page: Page, has_more_pages: bool, view: TopView
         let data = TopCallbackData { page: page.0 - 1, view }.to_data_string();
         nav_row.push(InlineKeyboardButton::callback("⬅️", data))
     }
+    // re-requests this exact page/view as-is, for a fresher leaderboard without losing position.
+    let refresh_data = TopCallbackData { page: page.0, view }.to_data_string();
+    nav_row.push(InlineKeyboardButton::callback("🔄", refresh_data));
     if has_more_pages {
         let data = TopCallbackData { page: page.0 + 1, view }.to_data_string();
         nav_row.push(InlineKeyboardButton::callback("➡️", data))
@@ -345,9 +348,9 @@ pub fn build_pagination_keyboard(page: Page, has_more_pages: bool, view: TopView
     };
     let toggle_data = TopCallbackData { page: 0, view: view.toggled() }.to_data_string();
     let toggle_row = vec![InlineKeyboardButton::callback(toggle_label, toggle_data)];
-    // Telegram rejects an empty button row, which `nav_row` can be on a single-page leaderboard.
-    let rows = if nav_row.is_empty() { vec![toggle_row] } else { vec![nav_row, toggle_row] };
-    InlineKeyboardMarkup::new(rows)
+    // `nav_row` always has at least the refresh button, so it's never empty (Telegram rejects an
+    // empty button row).
+    InlineKeyboardMarkup::new(vec![nav_row, toggle_row])
 }
 
 async fn answer_callback_feature_disabled(bot: Bot, q: &CallbackQuery, edit_msg_req_params: callbacks::EditMessageReqParamsKind) -> HandlerResult {

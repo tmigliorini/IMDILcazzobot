@@ -265,7 +265,11 @@ async fn redistribute_tax_payout(repos: &Repositories, chat_id: &ChatIdKind, pay
 
     let bottom = if players.len() > bottom_n { &players[players.len() - bottom_n..] } else { &[] };
     let benchmark_length = if players.len() > bottom_n { players[players.len() - bottom_n - 1].length } else { 0 };
-    match redistribute_to_bottom(bottom, benchmark_length, payout as i64) {
+    // a tax-debt installment still redistributes by plain length (unlike the daily `/tax`, which
+    // switched to net position) - it's the higher-frequency flow and isn't what the user asked to
+    // move onto the net ranking.
+    let bottom_metrics: Vec<(UserId, i32)> = bottom.iter().map(|p| (p.owner_uid.into(), p.length)).collect();
+    match redistribute_to_bottom(&bottom_metrics, benchmark_length, payout as i64) {
         Some(deltas) => for (player, (recipient_uid, delta)) in bottom.iter().zip(deltas) {
             if let Err(e) = repos.dicks.grow_no_attempts_check(chat_id, recipient_uid, delta).await {
                 log::error!("couldn't redistribute a tax-debt installment share to {recipient_uid} in {chat_id}: {e}");

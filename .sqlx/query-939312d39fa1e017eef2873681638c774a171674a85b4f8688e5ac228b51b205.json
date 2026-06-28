@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE P2P_Loans SET debt = $2, remaining_principal = $3, remaining_interest = $4,\n                    repaid_at = CASE WHEN $2 = 0 THEN now() ELSE repaid_at END\n                 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "939312d39fa1e017eef2873681638c774a171674a85b4f8688e5ac228b51b205"
+}

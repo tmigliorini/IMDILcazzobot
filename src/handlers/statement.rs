@@ -33,13 +33,14 @@ pub async fn cmd_handler(bot: Bot, msg: Message, repos: repo::Repositories) -> H
     metrics::CMD_STATEMENT_COUNTER.chat.inc();
 
     let from = msg.from.as_ref().ok_or(anyhow!("unexpected absence of a FROM field"))?;
+    let lang_code = LanguageCode::from_user(from);
     let chat_id = msg.chat.id.into();
     let from_refs = FromRefs(from, &chat_id);
 
     let statement = statement_impl(&repos, from_refs, Page::first()).await?;
     let mut request = reply_html(bot, &msg, statement.lines);
     if statement.has_more_pages {
-        let keyboard = build_pagination_keyboard(from.id, Page::first(), statement.has_more_pages);
+        let keyboard = build_pagination_keyboard(from.id, Page::first(), statement.has_more_pages, &lang_code);
         request.reply_markup.replace(ReplyMarkup::InlineKeyboard(keyboard));
     }
     request.await.context(format!("failed for {msg:?}"))?;
@@ -129,17 +130,23 @@ fn category_key(category: LedgerCategory) -> &'static str {
 /// Unlike `dick::build_pagination_keyboard` (shared, no owner check - a chat-wide leaderboard
 /// looks the same to everyone), this statement is personal data: the callback data carries `uid`
 /// so `callback_handler` can reject anyone else's clicks, the same way `LoanCallbackData` does.
-pub(crate) fn build_pagination_keyboard(uid: UserId, page: Page, has_more_pages: bool) -> InlineKeyboardMarkup {
+/// Always carries a second row back to the Info menu (see `info::back_button`) underneath the
+/// pagination row, on *every* page - not just the first one reached from that menu - so paging
+/// through a long statement never strands the player without a way back.
+pub(crate) fn build_pagination_keyboard(uid: UserId, page: Page, has_more_pages: bool, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
     let mut buttons = Vec::new();
     if page > 0 {
         let data = StatementCallbackData { uid, page: page.0 - 1 }.to_data_string();
         buttons.push(InlineKeyboardButton::callback("⬅️", data));
     }
+    // re-requests this exact page as-is, for a fresher statement without losing position.
+    let refresh_data = StatementCallbackData { uid, page: page.0 }.to_data_string();
+    buttons.push(InlineKeyboardButton::callback("🔄", refresh_data));
     if has_more_pages {
         let data = StatementCallbackData { uid, page: page.0 + 1 }.to_data_string();
         buttons.push(InlineKeyboardButton::callback("➡️", data));
     }
-    InlineKeyboardMarkup::new(vec![buttons])
+    InlineKeyboardMarkup::new(vec![buttons]).append_row(vec![crate::handlers::info::back_button(uid, lang_code)])
 }
 
 #[inline]
@@ -149,7 +156,7 @@ pub fn callback_filter(query: CallbackQuery) -> bool {
 
 pub async fn callback_handler(bot: Bot, query: CallbackQuery, repos: repo::Repositories) -> HandlerResult {
     let data = StatementCallbackData::parse(&query)?;
-    let (answer, _lang_code) = check_invoked_by_owner_and_get_answer_params!(bot, query, data.uid);
+    let (answer, lang_code) = check_invoked_by_owner_and_get_answer_params!(bot, query, data.uid);
 
     let edit_msg_req_params = callbacks::get_params_for_message_edit(&query)?;
     let chat_id_kind = edit_msg_req_params.clone().into();
@@ -158,7 +165,7 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery, repos: repo::Repos
     let page = Page(data.page);
     let statement = statement_impl(&repos, from_refs, page).await?;
 
-    let keyboard = build_pagination_keyboard(data.uid, page, statement.has_more_pages);
+    let keyboard = build_pagination_keyboard(data.uid, page, statement.has_more_pages, &lang_code);
     let (answer_callback_query_result, edit_message_result) = match &edit_msg_req_params {
         callbacks::EditMessageReqParamsKind::Chat(chat_id, message_id) => {
             let mut edit_message_text_req = bot.edit_message_text(*chat_id, *message_id, statement.lines);
