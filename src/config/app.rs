@@ -2,6 +2,7 @@ use reqwest::Url;
 use crate::config::env::*;
 use crate::config::toggles::*;
 use crate::config::announcements::*;
+use crate::config::tax::*;
 use crate::domain::Ratio;
 use crate::domain::SupportedLanguage::{EN, RU};
 
@@ -9,12 +10,18 @@ use crate::domain::SupportedLanguage::{EN, RU};
 #[cfg_attr(test, derive(Default))]
 pub struct AppConfig {
     pub features: FeatureToggles,
-    pub top_limit: u16,
+    pub top_limit: u32,
     pub loan_payout_ratio: f32,
     pub dod_rich_exclusion_ratio: Option<Ratio>,
     pub pvp_default_bet: u16,
+    pub donate_default_amount: u16,
+    pub p2p_loan_default_amount: u16,
+    pub p2p_loan_interest_rate: f32,
+    pub p2p_loan_payout_ratio: f32,
+    pub p2p_loan_interest_tax_rate: f32,
     pub announcements: AnnouncementsConfig,
     pub command_toggles: CachedEnvToggles,
+    pub tax: TaxConfig,
 }
 
 #[derive(Clone)]
@@ -25,7 +32,10 @@ pub struct DatabaseConfig {
 
 impl AppConfig {
     pub fn from_env() -> Self {
-        let top_limit = get_env_value_or_default("TOP_LIMIT", 10);
+        // 25 entries comfortably fit a single Telegram message even in the worst case (longest
+        // names, every line carrying its win-rate/net-breakdown suffix), so it's the default
+        // page size before the existing ⬅️/➡️ pagination has to kick in.
+        let top_limit = get_env_value_or_default("TOP_LIMIT", 25);
         let loan_payout_ratio = get_env_value_or_default("LOAN_PAYOUT_COEF", 0.0);
         let dod_selection_mode = get_optional_env_value("DOD_SELECTION_MODE");
         let dod_rich_exclusion_ratio = get_optional_env_ratio("DOD_RICH_EXCLUSION_RATIO");
@@ -33,10 +43,16 @@ impl AppConfig {
         let top_unlimited = get_env_value_or_default("TOP_UNLIMITED_ENABLED", false);
         let multiple_loans = get_env_value_or_default("MULTIPLE_LOANS_ENABLED", false);
         let pvp_default_bet = get_env_value_or_default("PVP_DEFAULT_BET", 1);
+        let donate_default_amount = get_env_value_or_default("DONATE_DEFAULT_AMOUNT", 5);
+        let p2p_loan_default_amount = get_env_value_or_default("P2P_LOAN_DEFAULT_AMOUNT", 10);
+        let p2p_loan_interest_rate = get_env_value_or_default("P2P_LOAN_INTEREST_RATE", 0.1);
+        let p2p_loan_payout_ratio = get_env_value_or_default("P2P_LOAN_PAYOUT_RATIO", 0.1);
+        let p2p_loan_interest_tax_rate = get_env_value_or_default("P2P_LOAN_INTEREST_TAX_RATE", 0.0);
         let check_acceptor_length = get_env_value_or_default("PVP_CHECK_ACCEPTOR_LENGTH", false);
         let callback_locks = get_env_value_or_default("PVP_CALLBACK_LOCKS_ENABLED", true);
         let show_stats = get_env_value_or_default("PVP_STATS_SHOW", true);
         let show_stats_notice = get_env_value_or_default("PVP_STATS_SHOW_NOTICE", true);
+        let skill_based_probability = get_env_value_or_default("PVP_SKILL_BASED_PROBABILITY", false);
         let announcement_max_shows = get_optional_env_value("ANNOUNCEMENT_MAX_SHOWS");
         let announcement_en = get_optional_env_value("ANNOUNCEMENT_EN");
         let announcement_ru = get_optional_env_value("ANNOUNCEMENT_RU");
@@ -51,12 +67,19 @@ impl AppConfig {
                     callback_locks,
                     show_stats,
                     show_stats_notice,
+                    skill_based_probability,
                 }
             },
             top_limit,
             loan_payout_ratio,
             dod_rich_exclusion_ratio,
             pvp_default_bet,
+            donate_default_amount,
+            p2p_loan_default_amount,
+            p2p_loan_interest_rate,
+            p2p_loan_payout_ratio,
+            p2p_loan_interest_tax_rate,
+            tax: TaxConfig::from_env(),
             announcements: AnnouncementsConfig {
                 max_shows: announcement_max_shows,
                 announcements: [

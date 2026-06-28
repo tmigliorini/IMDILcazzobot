@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.name FROM Dick_of_Day dod\n                JOIN Users u ON dod.winner_uid = u.uid\n                JOIN Chats c ON dod.chat_id = c.id\n                WHERE dod.created_at = current_date AND (c.chat_id = $1::bigint OR c.chat_instance = $1::text)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "95dfbdb89a0932ca3056f7ab3c55a9017ab83fe618cccdb29f029ab0159d7e48"
+}

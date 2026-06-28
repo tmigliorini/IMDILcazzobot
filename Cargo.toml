@@ -36,6 +36,7 @@ anyhow = { version = "1.0.95", features = ["backtrace"] }
 regex = "1.11.1"
 rand = "0.8.5"
 chrono = { version = "0.4.39", features = [ "serde" ] }
+chrono-tz = "0.10.1"
 base64 = "0.22.1"
 byteorder = "1.5.0"
 flurry = "0.5.2"

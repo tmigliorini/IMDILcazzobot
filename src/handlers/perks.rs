@@ -1,18 +1,19 @@
 use async_trait::async_trait;
 use num_traits::ToPrimitive;
 use sqlx::{Pool, Postgres};
+use crate::handlers::debt_settlement::settle_gain_against_debts;
 use crate::handlers::utils::{AdditionalChange, ChangeIntent, ConfigurablePerk, DickId, Perk};
 use crate::{config, repo};
 
 pub fn all(pool: &Pool<Postgres>, cfg: &config::AppConfig) -> Vec<Box<dyn Perk>> {
     let help_pussies_coef = config::get_env_value_or_default("HELP_PUSSIES_COEF", 0.0);
-    let loans = repo::Loans::new(pool.clone(), cfg);
-    
+    let repos = repo::Repositories::new(pool, cfg);
+
     vec![
         Box::new(HelpPussiesPerk {
             coefficient: help_pussies_coef,
         }),
-        Box::new(LoanPayoutPerk { loans })
+        Box::new(DebtPayoutPerk { repos, bottom_n: cfg.tax.bottom_ranks }),
     ]
 }
 
@@ -28,13 +29,13 @@ impl Perk for HelpPussiesPerk {
 
     async fn apply(&self, _: &DickId, change_intent: ChangeIntent) -> AdditionalChange {
         if change_intent.current_length >= 0 {
-            return AdditionalChange(0)
+            return AdditionalChange::new(0)
         }
-        
+
         let current_deepness = change_intent.current_length.abs()
             .to_f64().expect("conversion is always Some");
         let change = (self.coefficient * current_deepness).round() as i32;
-        AdditionalChange(change)
+        AdditionalChange::new(change)
     }
 
     fn enabled(&self) -> bool {
@@ -50,40 +51,35 @@ impl ConfigurablePerk for HelpPussiesPerk {
     }
 }
 
-pub struct LoanPayoutPerk {
-    loans: repo::Loans,
+/// Erodes every active debt `dick_id` has - bank loan, P2P loans, and loan-interest tax debts
+/// alike - out of a single growth/DoD award, oldest obligation first across all three (see
+/// `crate::handlers::debt_settlement::settle_gain_against_debts`, shared with PVP, donations,
+/// `/tax`, and promo codes so every gain settles debts the same way). Replaces what used to be
+/// two independent perks (`LoanPayoutPerk` for the bank, `P2PLoanPayoutPerk` for P2P loans),
+/// which is exactly the bug this merge fixes: each one used to claim its own `payout_ratio` of
+/// the *same* base increment independently, so a player with both kinds of debt got double-
+/// dipped (e.g. 10% + 10% withheld from one +10 growth, rather than the two competing for shares
+/// of one pool the way several P2P loans already had to).
+pub struct DebtPayoutPerk {
+    repos: repo::Repositories,
+    bottom_n: usize,
 }
 
 #[async_trait]
-impl Perk for LoanPayoutPerk {
+impl Perk for DebtPayoutPerk {
     fn name(&self) -> &str {
-        "loan-payout"
+        "debt-payout"
     }
 
     async fn apply(&self, dick_id: &DickId, change_intent: ChangeIntent) -> AdditionalChange {
-        let maybe_loan_components = self.loans.get_active_loan(dick_id.0, &dick_id.1)
-            .await
-            .inspect_err(|e| log::error!("couldn't check if a perk is active: {e}"))
-            .ok()
-            .flatten()
-            .map(|loan| (loan.debt, loan.payout_ratio));
-        let (debt, payout_coefficient) = match maybe_loan_components {
-            Some(x) => x,
-            None => return AdditionalChange(0)
-        };
-
-        let payout = if change_intent.base_increment.is_positive() {
-            let base_increment = change_intent.base_increment as f32;
-            let payout = (base_increment * payout_coefficient).round() as u16;
-            payout.min(debt)
-        } else {
-            0
-        };
-        match self.loans.pay(dick_id.0, &dick_id.1, payout).await {
-            Ok(()) => AdditionalChange(-i32::from(payout)),
+        if !change_intent.base_increment.is_positive() {
+            return AdditionalChange::new(0)
+        }
+        match settle_gain_against_debts(&self.repos, dick_id.0, &dick_id.1, change_intent.base_increment, self.bottom_n, true).await {
+            Ok(outcome) => AdditionalChange::with_details(-outcome.total_withheld, outcome.detail_lines),
             Err(e) => {
-                log::error!("couldn't pay {payout} cm for the loan ({dick_id}): {e}");
-                AdditionalChange(0)
+                log::error!("couldn't settle debts from a growth award ({dick_id}): {e}");
+                AdditionalChange::new(0)
             }
         }
     }
@@ -91,7 +87,7 @@ impl Perk for LoanPayoutPerk {
 
 #[cfg(test)]
 mod test {
-    use crate::handlers::perks::{HelpPussiesPerk, LoanPayoutPerk};
+    use crate::handlers::perks::{DebtPayoutPerk, HelpPussiesPerk};
     use crate::handlers::utils::{ChangeIntent, DickId, Perk};
     use crate::{config, repo};
     use crate::repo::test::{CHAT_ID_KIND, start_postgres, USER_ID};
@@ -110,54 +106,47 @@ mod test {
         let change_intent_negative_length_negative_increment = ChangeIntent { current_length: -1, base_increment: -1 };
         
         assert!(perk.enabled());
-        assert_eq!(perk.apply(&dick_id, change_intent_positive_length).await.0, 0);
-        assert_eq!(perk.apply(&dick_id, change_intent_negative_length_positive_increment).await.0, 1);
-        assert_eq!(perk.apply(&dick_id, change_intent_negative_length_negative_increment).await.0, 1);
+        assert_eq!(perk.apply(&dick_id, change_intent_positive_length).await.value, 0);
+        assert_eq!(perk.apply(&dick_id, change_intent_negative_length_positive_increment).await.value, 1);
+        assert_eq!(perk.apply(&dick_id, change_intent_negative_length_negative_increment).await.value, 1);
     }
 
     #[tokio::test]
-    async fn test_loan_payout() {
+    async fn test_debt_payout_for_a_bank_loan() {
         let (_container, db) = start_postgres().await;
-        let loans = {
-            let cfg = config::AppConfig {
-                loan_payout_ratio: 0.1,
-                ..Default::default()
-            };
-            repo::Loans::new(db.clone(), &cfg)
+        let cfg = config::AppConfig {
+            loan_payout_ratio: 0.1,
+            ..Default::default()
         };
+        let repos = repo::Repositories::new(&db, &cfg);
 
-        {
-            let users = repo::Users::new(db.clone());
-            users.create_or_update(USER_ID, "")
-                .await.expect("couldn't create a user");
-            
-            let dicks = repo::Dicks::new(db, Default::default());
-            dicks.create_or_grow(USER_ID, &CHAT_ID_KIND.into(), 0)
-                .await.expect("couldn't create a dick");
-        }
+        repos.users.create_or_update(USER_ID, "")
+            .await.expect("couldn't create a user");
+        repos.dicks.create_or_grow(USER_ID, &CHAT_ID_KIND.into(), 0)
+            .await.expect("couldn't create a dick");
 
-        let perk = LoanPayoutPerk { loans: loans.clone() };
+        let perk = DebtPayoutPerk { repos: repos.clone(), bottom_n: 0 };
         let dick_id = DickId(USER_ID, CHAT_ID_KIND);
         let change_intent_positive_increment = ChangeIntent { current_length: 1, base_increment: 10 };
         let change_intent_positive_increment_small = ChangeIntent { current_length: 1, base_increment: 2 };
         let change_intent_negative_increment = ChangeIntent { current_length: 1, base_increment: -1 };
 
         assert!(perk.enabled());
-        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment).await.0, 0);
+        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment).await.value, 0);
 
-        loans.borrow(USER_ID, &CHAT_ID_KIND, 10)
+        repos.loans.borrow(USER_ID, &CHAT_ID_KIND, 10)
             .await.expect("couldn't create a loan");
 
-        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment).await.0, -1);
-        let debt = loans.get_active_loan(USER_ID, &CHAT_ID_KIND)
+        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment).await.value, -1);
+        let debt = repos.loans.get_active_loan(USER_ID, &CHAT_ID_KIND)
             .await.expect("couldn't fetch the active loan")
             .expect("loan must be found")
             .debt;
         assert_eq!(debt, 9);
 
-        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment_small).await.0, 0);
-        assert_eq!(perk.apply(&dick_id, change_intent_negative_increment).await.0, 0);
-        let debt = loans.get_active_loan(USER_ID, &CHAT_ID_KIND)
+        assert_eq!(perk.apply(&dick_id, change_intent_positive_increment_small).await.value, 0);
+        assert_eq!(perk.apply(&dick_id, change_intent_negative_increment).await.value, 0);
+        let debt = repos.loans.get_active_loan(USER_ID, &CHAT_ID_KIND)
             .await.expect("couldn't fetch the active loan")
             .expect("loan must be found")
             .debt;

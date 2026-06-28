@@ -63,11 +63,53 @@ pub static CMD_PVP_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
         inline: Counter::new("command_pvp (inline)", opts.const_label("mode", "inline")),
     }
 });
+pub static CMD_TAX_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_tax_usage_total", "count of /tax invocations");
+    BothModesCounters {
+        chat: Counter::new("command_tax (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_tax (inline)", opts.const_label("mode", "inline")),
+    }
+});
+pub static CMD_P2P_LOAN_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_p2p_loan_usage_total", "count of /presta invocations");
+    BothModesCounters {
+        chat: Counter::new("command_p2p_loan (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_p2p_loan (inline)", opts.const_label("mode", "inline")),
+    }
+});
+pub static CMD_P2P_LOAN_STATUS_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_p2p_loan_status_usage_total", "count of /debiti invocations");
+    BothModesCounters {
+        chat: Counter::new("command_p2p_loan_status (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_p2p_loan_status (inline)", opts.const_label("mode", "inline")),
+    }
+});
+pub static CMD_SYNTAX_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_syntax_usage_total", "count of /syntax invocations");
+    BothModesCounters {
+        chat: Counter::new("command_syntax (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_syntax (inline)", opts.const_label("mode", "inline")),
+    }
+});
+pub static CMD_DONATE_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_donate_usage_total", "count of /donate invocations");
+    BothModesCounters {
+        chat: Counter::new("command_donate (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_donate (inline)", opts.const_label("mode", "inline")),
+    }
+});
 pub static CMD_STATS: Lazy<BothModesCounters> = Lazy::new(|| {
     let opts = Opts::new("command_stats_usage_total", "count of /stats invocations");
     BothModesCounters {
         chat: Counter::new("command_stats (chat)", opts.clone().const_label("mode", "chat")),
         inline: Counter::new("command_stats (inline)", opts.const_label("mode", "inline")),
+    }
+});
+pub static CMD_STATEMENT_COUNTER: Lazy<BothModesCounters> = Lazy::new(|| {
+    let opts = Opts::new("command_estratto_usage_total", "count of /estratto invocations");
+    BothModesCounters {
+        chat: Counter::new("command_estratto (chat)", opts.clone().const_label("mode", "chat")),
+        inline: Counter::new("command_estratto (inline)", opts.const_label("mode", "inline")),
     }
 });
 pub static CMD_IMPORT: Lazy<ComplexCommandCounters> = Lazy::new(|| {
@@ -84,6 +126,11 @@ pub static CMD_PROMO: Lazy<DeepLinkedCommandsCounters> = Lazy::new(|| {
         invoked_by_deeplink: Counter::new("deeplink_promo (invoked)", opts.clone().const_label("state", "invoked_by_deeplink")),
         finished: Counter::new("command_promo (finished)", opts.const_label("state", "finished")),
     }
+});
+// combo offers are inline-only (no "chat" mode to split against), so this is just a plain
+// counter, incremented once a combo offer is actually accepted.
+pub static CMD_COMBO_COUNTER: Lazy<Counter> = Lazy::new(|| {
+    Counter::new("command_combo", Opts::new("command_combo_usage_total", "count of accepted combo offers"))
 });
 
 
@@ -105,13 +152,26 @@ pub fn init() -> axum::Router {
         .register(&CMD_DOD_COUNTER.inline)
         .register(&CMD_PVP_COUNTER.chat)
         .register(&CMD_PVP_COUNTER.inline)
+        .register(&CMD_DONATE_COUNTER.chat)
+        .register(&CMD_DONATE_COUNTER.inline)
+        .register(&CMD_TAX_COUNTER.chat)
+        .register(&CMD_TAX_COUNTER.inline)
+        .register(&CMD_P2P_LOAN_COUNTER.chat)
+        .register(&CMD_P2P_LOAN_COUNTER.inline)
+        .register(&CMD_P2P_LOAN_STATUS_COUNTER.chat)
+        .register(&CMD_P2P_LOAN_STATUS_COUNTER.inline)
+        .register(&CMD_SYNTAX_COUNTER.chat)
+        .register(&CMD_SYNTAX_COUNTER.inline)
         .register(&CMD_STATS.chat)
         .register(&CMD_STATS.inline)
+        .register(&CMD_STATEMENT_COUNTER.chat)
+        .register(&CMD_STATEMENT_COUNTER.inline)
         .register(&CMD_IMPORT.invoked)
         .register(&CMD_IMPORT.finished)
         .register(&CMD_PROMO.invoked_by_command)
         .register(&CMD_PROMO.invoked_by_deeplink)
         .register(&CMD_PROMO.finished)
+        .register(&CMD_COMBO_COUNTER)
         .unwrap();
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();

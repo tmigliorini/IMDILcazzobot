@@ -1,0 +1,37 @@
+📖 <b>Sintassi (dal listone inline, scriv <code>@IMDILcazzobot</code>)</b>
+
+<b>Sfida</b>
+• <code>@IMDILcazzobot N</code> — sfida averta a tucc, posta de N ghei
+• <code>@IMDILcazzobot N nom</code> — sfida mirada a "nom"
+• <code>@IMDILcazzobot N P%</code> — quota: te vinciet al P%; se vinciet guadagnet domà 'na frazion (N×(1-P)/P), se perdet perdet semper N. P el pœu avè fina a 4 decimaj, virgola o ponto (es. 25% o 0,0025%)
+• <code>@IMDILcazzobot N P% nom</code> — quota + bersaglio
+
+<b>Donazion</b>
+• <code>@IMDILcazzobot dona N</code> — donazion averta
+• <code>@IMDILcazzobot dona N nom</code> — donazion mirada a "nom"
+• <code>@IMDILcazzobot dona -N</code> (o <code>dona -N nom</code>) — ciama N ghei invece de donaj: chi accetta dona a tì
+
+<b>Prestit P2P</b>
+• <code>@IMDILcazzobot presta N</code> — offerta de prestit averta a tucc, al tasso predefinii
+• <code>@IMDILcazzobot presta N R%</code> — istess, ma con on tasso d'interess personalizaa de R% (es. <code>presta 50 40%</code>)
+• El tasso R% el pœu vess anca negativ, fina a -1000% (es. <code>presta 50 -30%</code>). In sto cas chi presta el se impegna a dagh indree al debitor on tocc di ghei in pù, tœuü pian pianin de la SOA cresciuda futura. El debitor el dœuv in tucc i cas restituì el capital intregh, minga scontaa.
+• <code>@IMDILcazzobot presta N R% nom</code> (o domà <code>presta N nom</code>) — offerta mirada a "nom"
+• <code>@IMDILcazzobot presta -N</code> (o <code>presta -N R%</code>, <code>presta -N nom</code>, <code>presta -N R% nom</code>) — ciama on prestit de N ghei invece de offrinn vün: chi accetta el presta a tì
+• Chi presta el riceiv N ghei adess, ma chi tœu in prestit el dœuv restituì N + interess (se el tasso l'è positiv): vegn tegnuu via in automatich on tocc de minga cresciuda futura fina al saldo del debit. Se gh'hee pussee prestit attiv insema, vegn pagaa prima i pussee vecc.
+• On tocc di interess (no del capital) el diventa on debit de tassa, pagaa pian pianin cont la cresciuda futura de chi l'ha guadagnaa (chi presta al tasso positiv, chi tœu in prestit al tasso negativ) e redistribuii ai ultim de la classifica man man che ven incassaa, istess metodo del /tax.
+• Per vedè a che pont hinn tucc i tò prestit P2P (chi te dovrod e chi te spetta de incassà), usa /debiti o tœu "debiti" dal listone inline.
+
+<b>Tassa</b>
+• <code>/tax</code> — domà in chat, 1 voeulta al dì per chat: tassa i pussee gross e dona ai pussee minga gross, proporzionalment a la distanza dai alter
+• Se l'è giamò staa fada incoeu in sta chat chì, el comand el te'l dis e basta
+
+<b>Combo</b>
+• <code>@IMDILcazzobot &lt;part1&gt; combo &lt;part2&gt;</code> — dò ofert (sfida/donazion/prestit, in qualsivœuja combinazion) tegnüe insema in d'on'unica ofert: o se accetta tucc i dò part, o nagotta
+• Es. <code>@IMDILcazzobot 50 15% combo presta 100 30% Tommaso</code> — sfida de 50 ghei al 15% de probabilità + prestit de 100 ghei al 30% d'interess, tucc i dò mirad a "Tommaso"
+• El bersaglio ("nom"), se gh'è, se scriv domà 'na voeulta, a la fin de vün di dò part: se mancia in tucc i dò l'ofert l'è averta a tucc; se l'è scrivüü in tucc i dò deven vess istess nom, sedenò l'ofert la vegn refüdada subit
+• I bottón hinn istess: Accetta (e, se mirada, Refüda) insema in la riga de sora, Ritira (domà per chi l'ha mandada) in la riga de sota
+
+<b>Alter</b>
+• Scriv <code>@IMDILcazzobot</code> e tœu dal listone: fa cresce el bigol, classifica, Bigol del Dì, statistiche, prestit (de la banca), prestit P2P, debiti P2P, tassa (1 voeulta al dì per chat)
+
+<i>Nota: el bersaglio mirà ("nom") el funziona domà se scriviuu giusto el nom registraa in del gioeugh.</i>

@@ -3,11 +3,33 @@ use futures::TryFutureExt;
 use sqlx::{Executor, Pool, Postgres, Transaction};
 use teloxide::types::UserId;
 use crate::config::FeatureToggles;
-use super::{ChatIdKind, ChatIdPartiality, Chats, UID};
+use super::{ChatIdKind, ChatIdPartiality, Chats, WinRateAware, UID};
+use super::pvpstats::win_rate_percentage;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct Dick {
     pub length: i32,
+    pub owner_uid: UID,
+    pub owner_name: String,
+    pub grown_at: chrono::DateTime<chrono::Utc>,
+    pub position: Option<i64>,
+    pub battles_total: i32,
+    pub battles_won: i32,
+}
+
+impl WinRateAware for Dick {
+    fn win_rate_percentage(&self) -> f64 {
+        win_rate_percentage(self.battles_won, self.battles_total)
+    }
+}
+
+/// One row of the net-position `/top` view (see `Dicks::get_top_by_net`): `net` is what gets
+/// ranked/ordered by, `raw_length` is the player's actual (debt/credit-free) length, kept
+/// alongside it so the line renderer can show the credit/debit breakdown instead of battle stats.
+#[derive(sqlx::FromRow, Debug)]
+pub struct NetPositionRow {
+    pub net: i32,
+    pub raw_length: i32,
     pub owner_uid: UID,
     pub owner_name: String,
     pub grown_at: chrono::DateTime<chrono::Utc>,
@@ -33,6 +55,16 @@ impl Dicks {
             pool,
             features,
         }
+    }
+
+    /// Starts a transaction on the same pool every other method here implicitly commits its own
+    /// version of - exposed so a caller that needs to span more than one of those mutations in a
+    /// single transaction (`crate::handlers::combo`) can get one without reaching into a `Pool`
+    /// directly. Every repo struct is constructed from the very same pool (see
+    /// `crate::repo::Repositories::new`), so it doesn't matter which one's `begin_tx` is used to
+    /// start a transaction that ends up spanning calls into several of them.
+    pub(crate) async fn begin_tx(&self) -> anyhow::Result<Transaction<'_, Postgres>> {
+        self.pool.begin().await.map_err(Into::into)
     }
 
     pub async fn create_or_grow(&self, uid: UserId, chat_id: &ChatIdPartiality, increment: i32) -> anyhow::Result<GrowthResult> {
@@ -64,11 +96,16 @@ impl Dicks {
 
     pub async fn fetch_dick(&self, uid: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Option<Dick>> {
         sqlx::query_as!(Dick,
-            r#"SELECT length, uid as owner_uid, name as owner_name, updated_at as grown_at, position FROM (
-                 SELECT uid, name, d.length as length, updated_at, ROW_NUMBER() OVER (ORDER BY length DESC, updated_at DESC, name) AS position
+            r#"SELECT length, uid as owner_uid, name as owner_name, updated_at as grown_at, position,
+                    battles_total as "battles_total!", battles_won as "battles_won!" FROM (
+                 SELECT d.uid, name, d.length as length, updated_at,
+                        ROW_NUMBER() OVER (ORDER BY length DESC, updated_at DESC, name) AS position,
+                        COALESCE(bs.battles_total, 0) AS battles_total,
+                        COALESCE(bs.battles_won, 0) AS battles_won
                    FROM Dicks d
                    JOIN users using (uid)
                    JOIN Chats c ON d.chat_id = c.id
+                   LEFT JOIN Battle_Stats bs ON bs.uid = d.uid AND bs.chat_id = d.chat_id
                    WHERE c.chat_id = $2::bigint OR c.chat_instance = $2::text
                ) AS _
                WHERE uid = $1"#,
@@ -78,19 +115,67 @@ impl Dicks {
             .context(format!("couldn't fetch dick for {chat_id} and {uid}"))
     }
 
-    pub async fn get_top(&self, chat_id: &ChatIdKind, offset: u32, limit: u16) -> anyhow::Result<Vec<Dick>> {
+    pub async fn get_top(&self, chat_id: &ChatIdKind, offset: u32, limit: u32) -> anyhow::Result<Vec<Dick>> {
         sqlx::query_as!(Dick,
-            r#"SELECT length, uid as owner_uid, name as owner_name, updated_at as grown_at,
-                    ROW_NUMBER() OVER (ORDER BY length DESC, updated_at DESC, name) AS position
+            r#"SELECT length, d.uid as owner_uid, name as owner_name, updated_at as grown_at,
+                    ROW_NUMBER() OVER (ORDER BY length DESC, updated_at DESC, name) AS position,
+                    COALESCE(bs.battles_total, 0) AS "battles_total!",
+                    COALESCE(bs.battles_won, 0) AS "battles_won!"
                 FROM dicks d
                 JOIN users using (uid)
                 JOIN chats c ON c.id = d.chat_id
+                LEFT JOIN battle_stats bs ON bs.uid = d.uid AND bs.chat_id = d.chat_id
                 WHERE c.chat_id = $1::bigint OR c.chat_instance = $1::text
                 OFFSET $2 LIMIT $3"#,
                 chat_id.value() as String, offset as i64, limit as i32)
             .fetch_all(&self.pool)
             .await
             .context(format!("couldn't get the top of {chat_id} with offset = {offset} and limit = {limit}"))
+    }
+
+    /// Like `get_top`, but ranked by net position rather than raw `length`: each player's length
+    /// minus everything they owe (bank loan + P2P-loan-as-borrower + loan-interest tax debt) plus
+    /// everything owed to them (P2P-loan-as-lender) - the debt/credit-aware view behind `/top`'s
+    /// view-toggle button. No battle stats here (the line renderer shows the credit/debit
+    /// breakdown in their place instead - see `NetPositionRow`), so no `battle_stats` join either.
+    pub async fn get_top_by_net(&self, chat_id: &ChatIdKind, offset: u32, limit: u32) -> anyhow::Result<Vec<NetPositionRow>> {
+        sqlx::query_as!(NetPositionRow,
+            r#"SELECT net AS "net!", raw_length AS "raw_length!", owner_uid, owner_name, grown_at,
+                    ROW_NUMBER() OVER (ORDER BY net DESC, grown_at DESC, owner_name) AS position
+                FROM (
+                    SELECT
+                        (d.length
+                            - COALESCE(bank.debt, 0)
+                            - COALESCE(borrow.debt, 0)
+                            + COALESCE(lend.debt, 0)
+                            - COALESCE(tax.debt, 0)
+                        )::int AS net,
+                        d.length AS raw_length,
+                        d.uid AS owner_uid, u.name AS owner_name, d.updated_at AS grown_at
+                    FROM dicks d
+                    JOIN users u ON u.uid = d.uid
+                    JOIN chats c ON c.id = d.chat_id
+                    LEFT JOIN loans bank ON bank.uid = d.uid AND bank.chat_id = d.chat_id AND bank.repaid_at IS NULL
+                    LEFT JOIN (
+                        SELECT borrower_uid, chat_id, SUM(debt) AS debt FROM p2p_loans
+                            WHERE repaid_at IS NULL GROUP BY borrower_uid, chat_id
+                    ) borrow ON borrow.borrower_uid = d.uid AND borrow.chat_id = d.chat_id
+                    LEFT JOIN (
+                        SELECT lender_uid, chat_id, SUM(debt) AS debt FROM p2p_loans
+                            WHERE repaid_at IS NULL GROUP BY lender_uid, chat_id
+                    ) lend ON lend.lender_uid = d.uid AND lend.chat_id = d.chat_id
+                    LEFT JOIN (
+                        SELECT payer_uid, chat_id, SUM(debt) AS debt FROM loan_interest_tax_debts
+                            WHERE repaid_at IS NULL GROUP BY payer_uid, chat_id
+                    ) tax ON tax.payer_uid = d.uid AND tax.chat_id = d.chat_id
+                    WHERE c.chat_id = $1::bigint OR c.chat_instance = $1::text
+                ) base
+                ORDER BY position
+                OFFSET $2 LIMIT $3"#,
+                chat_id.value() as String, offset as i64, limit as i32)
+            .fetch_all(&self.pool)
+            .await
+            .context(format!("couldn't get the net-position top of {chat_id} with offset = {offset} and limit = {limit}"))
     }
 
     pub async fn set_dod_winner(&self, chat_id: &ChatIdPartiality, user_id: UserId, bonus: u16) -> anyhow::Result<Option<GrowthResult>> {
@@ -110,36 +195,65 @@ impl Dicks {
     }
 
     pub async fn check_dick(&self, chat_id: &ChatIdKind, user_id: UserId, length: u16) -> anyhow::Result<bool> {
+        Self::check_dick_with(&self.pool, chat_id, user_id, length).await
+    }
+
+    /// Same check as `check_dick`, but against an arbitrary executor - in particular, an
+    /// in-progress `Transaction` - so a caller juggling more than one mutation in the same
+    /// transaction (see `crate::handlers::combo`) can check a balance that an earlier,
+    /// not-yet-committed step in *that same transaction* already changed.
+    pub(crate) async fn check_dick_with<'c, E>(executor: E, chat_id: &ChatIdKind, user_id: UserId, length: u16) -> anyhow::Result<bool>
+    where E: Executor<'c, Database = Postgres>,
+    {
         sqlx::query_scalar!(r#"SELECT length >= $3 AS "enough!" FROM Dicks d
                 JOIN Chats c ON d.chat_id = c.id
                 WHERE (c.chat_id = $1::bigint OR c.chat_instance = $1::text)
                     AND uid = $2"#,
                 chat_id.value() as String, user_id.0 as i64, length as i32)
-            .fetch_optional(&self.pool)
+            .fetch_optional(executor)
             .map_ok(|opt| opt.unwrap_or(false))
             .await
             .context(format!("couldn't check the dick {chat_id}, {user_id} to have at least {length} cm"))
     }
 
+    /// Resolves `chat_id` to its internal numeric id - exposed so a caller that needs to run
+    /// several transfers against the same chat (again, `crate::handlers::combo`) only has to
+    /// resolve it once and can reuse the result, rather than every helper re-resolving its own.
+    pub(crate) async fn resolve_chat(&self, chat_id: &ChatIdPartiality) -> anyhow::Result<i64> {
+        self.chats.upsert_chat(chat_id).await
+    }
+
+    /// A `(new_length, position)` pair for `uid`, given a length value already known (typically
+    /// just written, e.g. by `move_length_in_tx`) - the position lookup is the only part that
+    /// still needs a query. Exposed so callers that did the actual write through `..._in_tx`
+    /// (and so already have the resulting length in hand) can build the same `GrowthResult` this
+    /// struct's own `pub` methods return, without duplicating the position lookup themselves.
+    pub(crate) async fn growth_result_after(&self, internal_chat_id: i64, uid: UserId, new_length: i32) -> anyhow::Result<GrowthResult> {
+        let pos_in_top = self.get_position_in_top(internal_chat_id, uid.0 as i64).await?;
+        Ok(GrowthResult { new_length, pos_in_top })
+    }
+
     pub async fn move_length(&self, chat_id: &ChatIdPartiality, from: UserId, to: UserId, length: u16) -> anyhow::Result<(GrowthResult, GrowthResult)> {
-        let internal_chat_id = self.chats.upsert_chat(chat_id).await?;
+        let internal_chat_id = self.resolve_chat(chat_id).await?;
 
         let mut tx = self.pool.begin().await?;
-        let length_from = Self::move_length_for_one_user(&mut tx, internal_chat_id, from.0, -(length as i32)).await?;
-        let length_to = Self::move_length_for_one_user(&mut tx, internal_chat_id, to.0, length as i32).await?;
+        let (length_from, length_to) = Self::move_length_in_tx(&mut tx, internal_chat_id, from, to, length).await?;
         tx.commit().await?;
 
-        let pos_from = self.get_position_in_top(internal_chat_id, from.0 as i64).await?;
-        let pos_to = self.get_position_in_top(internal_chat_id, to.0 as i64).await?;
-        let gr_from = GrowthResult {
-            new_length: length_from,
-            pos_in_top: pos_from,
-        };
-        let gr_to = GrowthResult {
-            new_length: length_to,
-            pos_in_top: pos_to,
-        };
+        let gr_from = self.growth_result_after(internal_chat_id, from, length_from).await?;
+        let gr_to = self.growth_result_after(internal_chat_id, to, length_to).await?;
         Ok((gr_from, gr_to))
+    }
+
+    /// The actual transfer behind `move_length`, against an externally owned `tx` that this
+    /// function never commits - so a caller juggling more than one transfer in one transaction
+    /// (`crate::handlers::combo`, for a true "both happen or neither does" guarantee across two
+    /// otherwise-independent offers) can run this for each leg and only commit once both have
+    /// succeeded. `move_length` itself is just this plus its own begin/commit around it.
+    pub(crate) async fn move_length_in_tx(tx: &mut Transaction<'_, Postgres>, chat_id_internal: i64, from: UserId, to: UserId, length: u16) -> anyhow::Result<(i32, i32)> {
+        let length_from = Self::move_length_for_one_user(tx, chat_id_internal, from.0, -(length as i32)).await?;
+        let length_to = Self::move_length_for_one_user(tx, chat_id_internal, to.0, length as i32).await?;
+        Ok((length_from, length_to))
     }
 
     async fn move_length_for_one_user(tx: &mut Transaction<'_, Postgres>, chat_id_internal: i64, user_id: u64, change: i32) -> anyhow::Result<i32> {
@@ -191,6 +305,24 @@ impl Dicks {
             .fetch_optional(executor)
             .await
             .context(format!("couldn't grow the dick without attempts check for {chat_id_internal} and {user_id} by {bonus}"))
+    }
+
+    /// The chat's already-chosen Dick of the Day winner for *today*, if any - used to build a
+    /// proper, HTML-escaped error message when `set_dod_winner`'s underlying trigger rejects a
+    /// second pick (`GD0E2`), instead of the caller trusting the trigger's raw exception message
+    /// as a display-ready, pre-escaped name (a name coming straight from Telegram's first/last
+    /// name fields, interpolated unescaped into an HTML-parsed message, would otherwise be an
+    /// HTML-injection foothold).
+    pub async fn get_today_dod_winner_name(&self, chat_id: &ChatIdKind) -> anyhow::Result<Option<String>> {
+        sqlx::query_scalar!(
+            r#"SELECT u.name FROM Dick_of_Day dod
+                JOIN Users u ON dod.winner_uid = u.uid
+                JOIN Chats c ON dod.chat_id = c.id
+                WHERE dod.created_at = current_date AND (c.chat_id = $1::bigint OR c.chat_instance = $1::text)"#,
+            chat_id.value() as String)
+            .fetch_optional(&self.pool)
+            .await
+            .context(format!("couldn't get today's dod winner for {chat_id}"))
     }
 
     async fn insert_to_dod_table(tx: &mut Transaction<'_, Postgres>, chat_id_internal: i64, user_id: i64) -> anyhow::Result<()> {

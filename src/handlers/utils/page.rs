@@ -4,9 +4,6 @@ use std::ops::{Add, Mul, Sub};
 #[derive(Copy, Clone, Debug, derive_more::Display)]
 pub struct Page(pub u32);
 
-#[derive(Debug, derive_more::Error, derive_more::Display)]
-pub struct InvalidPage(#[error(not(source))] String);
-
 impl Page {
     pub fn first() -> Self {
         Self(0)
@@ -46,16 +43,6 @@ impl PartialEq<u32> for Page {
 impl PartialOrd<u32> for Page {
     fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
         self.0.partial_cmp(other)
-    }
-}
-
-impl InvalidPage {
-    pub fn message(msg: impl ToString) -> Self {
-        Self(msg.to_string())
-    }
-
-    pub fn for_value(value: &str, msg: impl ToString) -> Self {
-        Self(format!("{}: {value}", msg.to_string()))
     }
 }
 

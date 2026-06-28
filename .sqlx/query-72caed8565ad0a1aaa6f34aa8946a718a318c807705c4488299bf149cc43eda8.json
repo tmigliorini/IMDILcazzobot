@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT proposer_uid, target_uid,\n                      leg1_kind as \"leg1_kind: ComboLegKind\", leg1_amount, leg1_rate_pct,\n                      leg2_kind as \"leg2_kind: ComboLegKind\", leg2_amount, leg2_rate_pct\n                FROM ComboOffers WHERE token = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "proposer_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "leg1_kind: ComboLegKind",
+        "type_info": {
+          "Custom": {
+            "name": "combo_offer_leg_kind",
+            "kind": {
+              "Enum": [
+                "pvp",
+                "donate",
+                "p2ploan"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "leg1_amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "leg1_rate_pct",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "leg2_kind: ComboLegKind",
+        "type_info": {
+          "Custom": {
+            "name": "combo_offer_leg_kind",
+            "kind": {
+              "Enum": [
+                "pvp",
+                "donate",
+                "p2ploan"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "leg2_amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "leg2_rate_pct",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "72caed8565ad0a1aaa6f34aa8946a718a318c807705c4488299bf149cc43eda8"
+}

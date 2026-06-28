@@ -1,0 +1,338 @@
+commands:
+  help:
+    description: "Te dou una man, amis"
+  privacy:
+    description: "La Privacy Policy che spiega che dat tegnem salvaa"
+  grow:
+    description: "Fa cresce el tò bigol!"
+    result: "🎲 El tò bigol l'è %{event} de <b>%{incr} ghei</b> e adess l'è longh <b>%{length} ghei</b>."
+    direction:
+      grown: "cressuu"
+      shrunk: "calaa"
+    position: "La tua posizion in la classifica l'è <b>%{pos}</b>."
+    tomorrow: "🎲 Te gh'hee giamò giugaa cont el tò bigol incoeu."
+  top:
+    description: "Varda i bigoi pussee grossi de la chat"
+    title: "La classifica di bigoi pussee grossi:"
+    net_title: "La classifica coi credit e i debit:"
+    net_intro: "<i>Sta chì la tegn cunt anca di prestit: chi gh'ha pussee debit che credit el cala, chi gh'ha pussee credit che debit el sberlüsa.\nTra parentes: quant l'è'l bigol pür, e quant l'è de credit (+) o de debit (-).</i>"
+    line: "%{n}|<b>%{name}</b> — <b>%{length}</b> ghei"
+    can_grow_marker: " [+]"
+    wr: " (<b>%{battles}/%{wr}%</b>)"
+    net_breakdown:
+      creditor: "<i>(<b>%{ghei} ghei</b> puri, +<b>%{delta}</b> de credit)</i>"
+      debtor: "<i>(<b>%{ghei} ghei</b> puri, -<b>%{delta}</b> de debit)</i>"
+    ending: "<i>[+] el voeur dì che chi gioega no gh'a minga ancamò fada cresce el sò bigol incoeu.</i>"
+    empty: "Gh'è ancamò nissun in del gioeugh :("
+  dod:
+    description: "Elegg ul Bigol del Dì"
+    result: "🍆 Ul Bigol del Dì l'è ul <b><a href=\"tg://user?id=%{uid}\">%{name}</a></b>!\n\nEl sò bigol l'è vegnüü pussee long de <b>%{growth} ghei</b> e adess l'è longh <b>%{length}</b> ghei."
+    position: "La soa posizion in la classifica l'è <b>%{pos}</b>."
+    already_chosen: "🍆 Ul Bigol del Dì l'è giamò staa scernii per incoeu! L'è <b>%{name}</b>."
+    unknown_winner: "quaivun"
+    no_candidates: "🍆 Gh'è nissun candidaa per l'elezion. In sta chat chì gh'è ancamò nissun in del gioeugh 😢"
+  pvp:
+    description: "Combatt cont el bigol del tò amis!"
+    results:
+      start: "🎰 Ul <b>%{name}</b> l'ha sfidaa la chat cont una posta de <b>%{bet} ghei</b>!"
+      start_targeted: "🎰 <b>%{name}</b> l'ha sfidaa <b>%{target_name}</b> cont una posta de <b>%{bet} ghei</b>!"
+      finish: "🎰 El vincidor l'è ul <b>%{winner_name}</b> (gh'aveva el <b>%{winner_probability}</b> de probabilità de vince)! El sò bigol l'è adess longh <b>%{winner_length} ghei</b>. Quell del perdent l'è <b>%{loser_length}</b>.\nLa posta l'era <b>%{bet} ghei</b>."
+      position:
+        winner: "La posizion de <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+        loser: "La posizion de ul <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+      stats:
+        text: "Percentual de vittorie del <b>vincidor</b> — <b>%{winner_win_rate}</b>.\nLa soa striscia de vittorie attuala — <b>%{winner_win_streak}</b>, striscia massima — <b>%{winner_win_streak_max}</b>.\nPercentual de vittorie del <b>perdent</b> — <b>%{loser_win_rate}</b>."
+        lost_win_streak: "L'è andada perduda la striscia de <b>%{lost_win_streak}</b> vittorie de fila."
+        lose_streak_current: "El perdent l'ha perduu <b>%{lose_streak}</b> sfide de fila."
+        snapped_lose_streak: "El vincidor l'ha just interrott una striscia de <b>%{snapped_lose_streak}</b> sconfitte de fila."
+      skewed_odds: "<i>Per chi accetta: probabilità de vittoria <b>%{probability}%</b>. Se accettet e vinciet, guadagnet <b>%{win_amount} ghei</b>; se perdet, ne perdet <b>%{lose_amount}</b>.</i>"
+    button: "Ataca!"
+    errors:
+      no_args: "Ciama el comand cont el numer de ghei che te voeuret mett in posta."
+      not_enough:
+        initiator: "Meh. El bigol de chi ha sfidaa l'è no assee longh per una posta inscì grossa!"
+        acceptor: "El tò sciopp l'è no assee long 😣"
+      same_person: "Te poeudet no combatt cont te midemm!"
+      not_target: "Sta sfida chì l'è minga per tì!"
+      invalid_probability: "La probabilità '%{probability}%' l'è minga valida: dovaria vess tra 0% e 100% (esclüs)."
+      target_not_found: "Gh'è nissun giugadôr ciamaa '%{name}'."
+      target_ambiguous: "Gh'è pussee de on giugadôr ciamaa '%{name}': fa la domanda pussee precisa."
+      battle_already_in_progress: "La sfida l'è giamò in cors! El messagg el sarà agiornaa in d'on moment…"
+  donate:
+    description: "Dona di ghei a chi te voeuret!"
+    results:
+      start: "💰 Ul <b>%{name}</b> el voeur donà <b>%{amount} ghei</b> a quaivun!"
+      start_targeted: "💰 <b>%{name}</b> el voeur donà <b>%{amount} ghei</b> a <b>%{target_name}</b>!"
+      request: "💰 Ul <b>%{name}</b> el ciama <b>%{amount} ghei</b> de quaivun!"
+      request_targeted: "💰 <b>%{name}</b> el ciama <b>%{amount} ghei</b> a <b>%{target_name}</b>!"
+      finish: "💰 Ul <b>%{donor_name}</b> el gh'ha donaa <b>%{amount} ghei</b> a <b>%{receiver_name}</b>! Adess el donador l'è longh <b>%{donor_length} ghei</b> e el ricevidor <b>%{receiver_length} ghei</b>."
+      position:
+        donor: "La posizion de ul <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+        receiver: "La posizion de ul <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+    button: "Ricevi!"
+    button_pull: "Donagh!"
+    errors:
+      no_args: "Ciama el comand cont el numer de ghei che te voeuret donà."
+      not_enough: "Te gh'hee minga assee ghei per donagh tucc quj!"
+      same_person: "Te poeudet minga donà ghei a te midemm!"
+      not_target: "Sta donazion chì l'è minga per tì!"
+      target_not_found: "Gh'è nissun giugadôr ciamaa '%{name}'."
+      target_ambiguous: "Gh'è pussee de on giugadôr ciamaa '%{name}': fa la domanda pussee precisa."
+      already_in_progress: "La donazion l'è giamò in cors! El messagg el sarà agiornaa in d'on moment…"
+  tax:
+    description: "Tassa i pussee gross e dona ai pussee minga gross"
+    results:
+      summary: "🇮🇹 <b>Tassa del dì!</b>\n\nGh'è staa tolt:\n%{paid}\n\nGh'è staa donaa:\n%{received}\n\nTotal redistribuii: <b>%{pool} ghei</b>."
+      paid_line: "➖ <b>%{name}</b>: <b>%{amount} ghei</b>"
+      received_line: "➕ <b>%{name}</b>: <b>%{amount} ghei</b>"
+    errors:
+      disabled: "Sta funzion chì l'è minga configurada."
+      not_enough_players: "Gh'è minga assee giugadôr per fa la tassa (gh'en voeur almenter <b>%{needed}</b>, gh'en n'è <b>%{present}</b>)."
+      already_done_today: "La tassa l'è giamò staa fada incoeu in sta chat chì!"
+  presta:
+    description: "Presta di ghei a quaivun, cont interess"
+    results:
+      start: "✡️ Ul <b>%{name}</b> el voeur prestà <b>%{amount} ghei</b> a quaivun, al <b>%{rate}%</b> de interess! %{debt_clause}"
+      start_targeted: "✡️ <b>%{name}</b> el voeur prestà <b>%{amount} ghei</b> a <b>%{target_name}</b>, al <b>%{rate}%</b> de interess! %{debt_clause}"
+      request: "✡️ Ul <b>%{name}</b> el ciama on prestit de <b>%{amount} ghei</b>, al <b>%{rate}%</b> de interess! %{debt_clause}"
+      request_targeted: "✡️ <b>%{name}</b> el ciama on prestit de <b>%{amount} ghei</b> a <b>%{target_name}</b>, al <b>%{rate}%</b> de interess! %{debt_clause}"
+      finish: "✡️ <b>%{lender_name}</b> el gh'ha prestaa <b>%{amount} ghei</b> a <b>%{borrower_name}</b>, al <b>%{rate}%</b> de interess! Adess <b>%{lender_name}</b> l'è longh <b>%{lender_length} ghei</b> e <b>%{borrower_name}</b> <b>%{borrower_length} ghei</b>. %{debt_clause}"
+      debt_clause:
+        positive: "Chi acetta dovrà restituinn <b>%{debt} ghei</b> in tut."
+        negative: "Però chi presta dovrà anca dagh <b>%{debt} ghei</b> in pù (tasso negativ)."
+      tax_debt_created:
+        lender: "Di interess, <b>%{tax} ghei</b> diventarann on debit de tassa per el prestadô: pagaa pian pianin cont la soa cresciuda futura, e redistribuii ai ultim de la classifica man man che ven incassaa (istess metodo del /tax)."
+        borrower: "Di interess negativ, <b>%{tax} ghei</b> diventarann on debit de tassa per el debitor: pagaa pian pianin cont la soa cresciuda futura, e redistribuii ai ultim de la classifica man man che ven incassaa (istess metodo del /tax)."
+      position:
+        lender: "La posizion de <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+        borrower: "La posizion de <b>%{name}</b> in la classifica l'è <b>%{pos}</b>."
+    button: "Tö sü!"
+    button_pull: "Prestega tì!"
+    errors:
+      no_args: "Ciama el comand cont el numer de ghei che te voeuret prestà (on numer negativ, tipo -50, se inveci te voeuret ciamà on prestit a quaivun)."
+      not_enough: "Te gh'hee minga assee ghei per prestagh tucc quj!"
+      not_enough_anymore: "✡️ Quj ghei chì hinn staa giamò impegnaa in d'on alter sit: l'offerta l'è ritirada in automatic."
+      same_person: "Te poeudet minga prestà ghei a te midemm!"
+      not_target: "Sto prestit chì l'è minga per tì!"
+      target_not_found: "Gh'è nissun giugadôr ciamaa '%{name}'."
+      target_ambiguous: "Gh'è pussee de on giugadôr ciamaa '%{name}': fa la domanda pussee precisa."
+      already_in_progress: "El prestit l'è giamò in cors! El messagg el sarà agiornaa in d'on moment…"
+      rate_too_high: "El tasso d'interess '%{rate}%' l'è minga valid per %{amount} ghei."
+  combo:
+    button: "Sont dent!"
+    results:
+      net:
+        gain: "In total, considerand tucc i dò part insema, el tò bigol l'è cressuu de <b>%{net} ghei</b>."
+        loss: "In total, considerand tucc i dò part insema, el tò bigol l'è calaa de <b>%{net} ghei</b>."
+        even: "In total, considerand tucc i dò part insema, el tò bigol l'è restaa istess: nissun cambiament net."
+    errors:
+      target_mismatch: "I dò part d'on combo deven vess mirade a la midema persona, o a nissuna!"
+      same_person: "Te poeudet no fa on combo cont te midemm!"
+      not_target: "Sto combo chì l'è minga per tì!"
+      expired: "Sto combo chì el gh'è pussee no (forsi l'è scadüü, o el bot l'è staa reavviaa) — mandel danoeuv!"
+  debiti:
+    description: "Varda a che pont hinn i tò prestit"
+    no_loans: "Te gh'hee nissun prestit aviert in sta chat chì, nè de chì nè de là!"
+    as_borrower:
+      title: "📥 <i>Quell che te gh'hee de restituì:</i>"
+      line: "— a <b>%{name}</b>: <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
+    as_lender:
+      title: "📤 <i>Quell che te spetta de incassà:</i>"
+      line: "— de <b>%{name}</b>: <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
+    breakdown_line: "    capital <b>%{principal} ghei</b> + interess al <b>%{rate}%</b> (<b>%{interest} ghei</b>)"
+    tax_debt:
+      title: "🇮🇹 <i>Debit de tassa sui interess:</i>"
+      line: "— <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
+      line_with_origin: "— <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress} (del prestit cont <b>%{name}</b>)"
+    totals:
+      title: "📊 <i>Total:</i>"
+      line: "Te gh'hee de dà in total <b>%{owed_by_me} ghei</b>, e te spetta de incassà <b>%{owed_to_me} ghei</b>."
+      net:
+        creditor: "In total, te seet in credit per <b>%{net} ghei</b>."
+        debtor: "In total, te seet in debit per <b>%{net} ghei</b>."
+        even: "Te seet in pareggio."
+  syntax:
+    description: "Spiega la sintassi de sfide, donazion e tassa"
+  stats:
+    description: "Statistiche"
+    length: "Longhezza: <b>%{length}</b>\nPosizion in la classifica: <b>%{pos}</b>"
+    pvp: "Percentual de vittorie: <b>%{win_rate}</b>.\nSfide: <b>%{battles}</b>.\nVittorie: <b>%{wins}</b>.\nStriscia massima de vittorie: <b>%{win_streak}</b>.\nLonghezza guadagnada: <b>%{acquired} ghei</b>.\nLonghezza perduda: <b>%{lost} ghei</b>."
+    notice: "Salut!"
+    personal: "<i>Le tue statistiche personai:</i>\n— Numer de chat indoe te gioeughet: <b>%{chats}</b>.\n— Longhezza massima: <b>%{max_length}</b>.\n— Somma di bigoi in tucc i chat: <b>%{total_length}</b>."
+    categories:
+      title: "💼 <i>Dare e avere per categoria (in sta chat chì):</i>"
+      grow: "🎲 Crescida naturala"
+      pvp: "🎰 Sfide"
+      donate: "💰 Donazion"
+      loan_interest: "✡️ Interess sui prestit"
+      loan_principal: "✡️ Capital di prestit"
+      tax: "🇮🇹 Tasse"
+    category_line: "<b>%{category}</b>\nDare: <b>%{dare} ghei</b> · Avere: <b>%{avere} ghei</b> · Somma: <b>%{sum} ghei</b>"
+  report:
+    title: "💼 <i>Bilanc economic de la chat (tucc i giugadô insema):</i>"
+  estratto:
+    description: "Vegh l'estratt cont de la chat, transazion per transazion"
+    title: "🧾 <i>Estratt cont (in sta chat chì):</i>\nSaldo residuo: <b>%{balance} ghei</b>"
+    empty: "Gh'è ancamò nissuna transazion registrada in sta chat chì."
+    line: "<i>%{datetime}</i>\n%{category}: <b>%{amount} ghei</b>"
+    line_with_counterparty: "<i>%{datetime}</i>\n%{category}: <b>%{amount} ghei</b> (cont %{counterparty})"
+    categories:
+      grow: "🎲 Crescida"
+      pvp: "🎰 Sfida"
+      donate: "💰 Donazion"
+      loan_interest: "✡️ Interess sul prestit"
+      loan_principal: "✡️ Prestit"
+      tax: "🇮🇹 Tassa"
+  loan:
+    description: "In meno? Tö sü on prestit!"
+    debt: "✡️ Resta de pagà <b>%{debt} ghei</b>"
+    confirmation:
+      text: "✡️ El tò büs profond el sarà azzeraa, ma ogni crescita la sarà sminuida de <b>%{payout_percentage}</b> finna che tütt i <b>%{debt} ghei</b> hinn pagaa."
+      buttons:
+        agree: "Sont dent!"
+        disagree: "Nò"
+    callback:
+      success: "✡️ El microprestit l'è staa concess cont success!"
+      refused: "✡️ El paziente l'ha refüdaa el cambi de sess a credit."
+      payout_ratio_changed: "✡️ La percentual de restituzion l'è cambiada de quand te gh'hee mandaa la domanda del prestit. Per piasè, fa partì danoeuv el comand."
+    errors:
+      positive_length: "✡️ Scüsa, fradell, sta iniziativa sociala l'è pensada domà per chi gh'a on büs fondo fondo. Poss minga fa vegnì pussee longh el tò fradell grand, che l'è giamò bela grand :("
+  import:
+    description: "Importa bigoi de'n d'i alter bot"
+    result:
+      titles:
+        imported: "I següent utent hinn staa importaa:"
+        already_present: "I següent utent eren giamò staa importaa prima:"
+        not_found: "I següent utent hinn ancamò no in del gioeugh:"
+      line:
+        imported: "➖ <b>%{name}</b> (<i>%{length}</i> ghei)"
+        already_present: "➖ <b>%{name}</b> (<i>%{length}</i> ghei)"
+        not_found: "➖ <b>%{name}</b>"
+    errors:
+      not_admin: "Sto comand chì el pœu vess usaa domà di amministradô!"
+      not_reply: "Te gh'hee de rispond a on messagg minga giraa, mandaa de vun de quist chì: %{origin_bots}"
+      invalid_lines:
+        template: "Podevi minga capì sto messagg chì 🤔\nLe següent righe hinn no valide:\n%{invalid_lines}"
+        line: "➖ <b>%{line}</b>"
+  promo:
+    description: "Attiva on codes promo"
+    request: "Scriv on codes promo:"
+    success:
+      template: "Te gh'hee attivaa sto codes promo cont success! %{ending}"
+      singular: "El tò bigol l'è cressuu de <b>%{growth}</b> ghei in d'una chat."
+      plural: "El tò bigol l'è cressuu de <b>%{growth}</b> ghei in <b>%{affected_chats}</b> chat!"
+    errors:
+      no_activations_left: "Me dispiass tant ma sto codes promo chì o no l'è mai esistii, o l'è scaduu, o l'è giamò staa tütt usaa 😞"
+      already_activated: "Sembra che te gh'hee giamò usaa sto codes promo prima 🤨"
+      no_dicks: "Sembra che te gh'hee ancamò nissun bigol. 🤔 Adess l'è el moment de mettemm in d'una chat e fa partì el comand <code>/grow</code>!"
+    inline:
+      switch_button: "Attiva el codes promo '%{code}'…"
+inline:
+  results:
+    text: "Visto che poss minga capì la chat de'n d'una query inline, te gh'hee de clicca sul boton chì sota per avè el resultaa."
+    button: "Clicca chì!"
+    titles:
+      grow: "🎲 Fa cresce el tò bigol!"
+      top: "🏆 Varda i bigoi pussee grossi de la chat"
+      dick_of_day: "🍆 Elegg ul Bigol del Dì"
+      loan: "✡️ In meno? Tö sü on prestit!"
+      tax: "🇮🇹 Tassa"
+      info: "ℹ️ Informazion"
+      wizard: "🧙 Offerta avanzada (combo, import liber)"
+      pvp: "🎰 Sfida i alter cont una posta de %{bet} ghei!"
+      donate: "💰 Dona %{amount} ghei a quaivun!"
+      donate_pull: "💰 Ciama %{amount} ghei de quaivun!"
+      presta: "✡️ Presta %{amount} ghei a quaivun, cont interess"
+      presta_pull: "✡️ Ciama on prestit de %{amount} ghei!"
+      pvp_picker: "🎰 Sfida on alter giugadôr"
+      donate_picker: "💰 Dona di ghei a quaivun"
+      presta_picker: "✡️ Presta di ghei, cont interess"
+      combo: "Offerta combo: dò part insema, accettade o refüdade tucc i dò!"
+  info_menu:
+    intro: "Cosa vuret vedè?"
+    titles:
+      stats: "📊 Statistiche"
+      debiti: "✡️ Debiti"
+      estratto: "🧾 Estratto"
+      syntax: "❓ Sintassi"
+      presentation: "ℹ️ Cos'è"
+      report: "💼 Bilanc de la chat"
+    back_button: "🔙 Indree"
+  amount_picker:
+    preset_button: "%{amount} ghei"
+    hint:
+      pvp: "🎰 Scieghi la posta chì sota, o scriv direttament '<b>50 Mario</b>' (numer + nomm) per una posta personalizada."
+      donate: "💰 Scieghi l'importo chì sota, o scriv direttament '<b>dona 50 Mario</b>' per on importo personalizaa."
+      presta: "✡️ Scieghi l'importo chì sota (al <b>%{rate}%</b> de interess), o scriv direttament '<b>presta 50 Mario</b>' per on importo personalizaa."
+  details_button: "📊 Dettagli"
+  callback:
+    cancel_button: "↩️ Ritira"
+    reject_button: "❌ Refüda"
+    offer_cancelled: "L'offerta l'è stada ritirada."
+    offer_rejected: "L'offerta l'è stada refüdada."
+    errors:
+      another_user: "Sto messagg chì l'è staa mandaa de n'altra persona."
+      invalid_data: "Forsi sto messagg chì l'è staa mandaa cont una version pussee vegia del bot. Preuva a mandall danoeuv."
+      unknown_data: "Comand minga conossuu"
+      no_data: "Quaicoss l'è andaa mal…"
+titles:
+  greeting: "Salut!"
+  time_till_next_day:
+    none: " Torna doman!"
+    some: "\n\nProsim tentativ in <b>%{hours}</b>h <b>%{minutes}</b>m."
+  recipient_line: "→ <b>%{name}</b>: <b>%{payout} ghei</b>"
+  recipient_line_with_remaining: "→ <b>%{name}</b>: <b>%{payout} ghei</b> (resta <b>%{remaining} ghei</b>)"
+  debt_withheld: "Di guadagn, <b>%{payout} ghei</b> hinn staa tegnuu indree per pagà i tò debit."
+  debt_withheld_named: "Di guadagn, <b>%{payout} ghei</b> hinn staa tegnuu indree per pagà i tò debit, destinaa a:"
+  perks:
+    top_line: "I següent vantagg hann influenzaa el resultaa"
+    help-pussies: "büs profond"
+    debt-payout: "regolament di debit"
+errors:
+  not_group_chat: "Sto bot chì el pœu fa la soa mission domà in di chat de grupp!"
+  feature_disabled: "Sta funzion chì l'è adess disattivada temporaneament."
+wizard:
+  back_button: "🔙 Indree"
+  cancel_button: "❌ Annulla"
+  cancelled: "🧙 Operazion annullada."
+  leg_label: " (azion %{n})"
+  mode:
+    text: "🧙 Vœuret fa on'azion singola o on combo (dò azion insema)?"
+    single: "1️⃣ Azion singola"
+    combo: "2️⃣ Combo (dò azion)"
+  kind:
+    text: "Che tipo de azion?"
+    pvp: "🎰 Sfida"
+    donate: "💰 Dona / Ciama ghei"
+    presta: "✡️ Presta / Ciama on prestit"
+  sign:
+    donate_give: "🎁 Dona"
+    donate_take: "🙏 Ciama"
+    presta_give: "✡️ Presta"
+    presta_take: "🙏 Ciama on prestit"
+  amount:
+    text: "Quanti ghei?"
+    current: "%{sign}\nImport: <b>%{amount}</b> ghei"
+  prob:
+    text: "Probabilità de vittoria personalizada (lassa 'Standard' per 50/50, o basada sui skill se l'è attiva)?"
+    current: "Probabilità: <b>%{amount}</b>%"
+    standard: "🎲 Standard"
+  rate:
+    text: "Tasso d'interess personalizaa (lassa 'Default' per quell configuraa)?"
+    current: "Tasso: <b>%{amount}</b>%"
+    default: "💰 Default (%{rate}%)"
+    positive: "➕ Positiv"
+    negative: "➖ Negativ"
+  target:
+    text: "A chi l'è rivolta l'offerta?"
+    open: "🌐 Aperta a tucc"
+  preview:
+    intro: "🧙 Ecco l'offerta che sarà creada:"
+    confirm: "✅ Creala!"
+    invalid_leg: "⚠️ Sta azion chì l'è minga valida."
+  errors:
+    invalid_amount: "⚠️ Gh'è quaicoss che l'è minga valid in sta offerta chì."
+    amount_must_be_positive: "⚠️ L'import el gh'ha de vess pussee grand de 0."
+    invalid_probability: "⚠️ La probabilità dev vess tra 0 e 100 (esclüs)."
+    rate_too_high: "⚠️ Sto tasso chì (massim ±1000%) l'è minga valid per st'import chì: preuva on import o on tasso pussee piscinin."
+    finalize_failed: "⚠️ Gh'è staa on problema a salvà l'offerta. Toeucca danoeuv '✅ Creala!' per riprovà."

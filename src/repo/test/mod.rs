@@ -1,5 +1,5 @@
 mod users;
-mod dicks;
+pub(crate) mod dicks;
 mod chats;
 mod import;
 mod promo;
@@ -7,6 +7,9 @@ mod loans;
 mod pvpstats;
 mod stats;
 mod announcements;
+mod tax;
+mod ledger;
+mod loan_interest_tax_debts;
 
 use std::str::FromStr;
 use reqwest::Url;
@@ -47,7 +50,16 @@ pub async fn start_postgres() -> (ContainerAsync<GenericImage>, Pool<Postgres>) 
     let postgres_port = postgres_container.get_host_port_ipv4(POSTGRES_PORT)
         .await
         .expect("couldn't fetch port from PostgreSQL server");
-    let db_url = Url::from_str(&format!("postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{postgres_port}/{POSTGRES_DB}"))
+    // "localhost" only reaches the published port when the test process runs directly on the
+    // same host as the Docker daemon. Under Docker-outside-of-Docker (the test process itself
+    // running inside a container that talks to the host's daemon via a mounted socket -
+    // common in some CI setups, and how this repo's own sandboxed dev container is set up),
+    // the test container's "localhost" is its own loopback, unrelated to wherever Docker
+    // actually published the port - so connections silently time out instead of failing fast.
+    // TEST_POSTGRES_HOST is an escape hatch for that case (e.g. the bridge network's gateway
+    // address, which does route back to the real host); unset, behavior is unchanged.
+    let host = std::env::var("TEST_POSTGRES_HOST").unwrap_or_else(|_| "localhost".to_owned());
+    let db_url = Url::from_str(&format!("postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{host}:{postgres_port}/{POSTGRES_DB}"))
         .expect("invalid database URL");
     let conf = DatabaseConfig{
         url: db_url,

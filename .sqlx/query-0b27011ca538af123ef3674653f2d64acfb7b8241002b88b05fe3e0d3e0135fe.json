@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE Loan_Interest_Tax_Debts SET debt = debt - $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b27011ca538af123ef3674653f2d64acfb7b8241002b88b05fe3e0d3e0135fe"
+}

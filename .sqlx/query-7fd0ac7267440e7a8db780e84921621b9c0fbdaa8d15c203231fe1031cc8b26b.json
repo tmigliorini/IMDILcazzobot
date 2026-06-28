@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM Tax_Log tl JOIN Chats c ON tl.chat_id = c.id\n                WHERE (c.chat_id = $1::bigint OR c.chat_instance = $1::text) AND tl.created_at = current_date) AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7fd0ac7267440e7a8db780e84921621b9c0fbdaa8d15c203231fe1031cc8b26b"
+}

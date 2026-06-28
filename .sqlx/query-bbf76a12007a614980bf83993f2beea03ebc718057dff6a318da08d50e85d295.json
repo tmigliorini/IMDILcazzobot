@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lose_streak_current FROM Battle_Stats WHERE chat_id = $1 AND uid = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lose_streak_current",
+        "type_info": "Int2"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bbf76a12007a614980bf83993f2beea03ebc718057dff6a318da08d50e85d295"
+}

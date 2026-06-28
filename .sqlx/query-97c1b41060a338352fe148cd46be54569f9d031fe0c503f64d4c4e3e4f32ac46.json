@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE P2P_Loans SET\n                debt = debt - $2,\n                remaining_principal = remaining_principal - $3,\n                remaining_interest = remaining_interest - $4\n            WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "97c1b41060a338352fe148cd46be54569f9d031fe0c503f64d4c4e3e4f32ac46"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE Dicks SET bonus_attempts = (bonus_attempts + 1), length = (length + $2) WHERE uid = $1 RETURNING chat_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chat_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "247bc7f319ff53dbc0fa70cc985621dbb549da04b6904c4dc92ad0c001b052e4"
+}

@@ -9,7 +9,9 @@ use teloxide::payloads::AnswerInlineQuerySetters;
 use teloxide::prelude::{Dialogue, InlineQuery, Requester};
 use teloxide::types::{InlineQueryResultsButton, InlineQueryResultsButtonKind, Message, User};
 use crate::handlers::{HandlerResult, reply_html};
+use crate::handlers::debt_settlement::settle_gain_against_debts;
 use crate::{metrics, reply_html, repo};
+use crate::config::AppConfig;
 use crate::domain::LanguageCode;
 use crate::repo::ActivationError;
 
@@ -37,7 +39,7 @@ pub enum PromoCommandState {
 pub type PromoCodeDialogue = Dialogue<PromoCommandState, InMemStorage<PromoCommandState>>;
 
 pub async fn promo_cmd_handler(bot: Bot, msg: Message, cmd: PromoCommands, dialogue: PromoCodeDialogue,
-                               repos: repo::Repositories) -> HandlerResult {
+                               repos: repo::Repositories, config: AppConfig) -> HandlerResult {
     metrics::CMD_PROMO.invoked_by_command.inc();
     let user = msg.from.as_ref().ok_or("no from user")?;
     let answer = match cmd {
@@ -49,8 +51,8 @@ pub async fn promo_cmd_handler(bot: Bot, msg: Message, cmd: PromoCommands, dialo
         }
         PromoCommands::Promo(code) => {
             dialogue.exit().await?;
-            
-            promo_activation_impl(repos.promo, user, &code).await?
+
+            promo_activation_impl(&repos, &config, user, &code).await?
         },
     };
     reply_html!(bot, msg, answer);
@@ -58,13 +60,13 @@ pub async fn promo_cmd_handler(bot: Bot, msg: Message, cmd: PromoCommands, dialo
 }
 
 pub async fn promo_requested_handler(bot: Bot, msg: Message, dialogue: PromoCodeDialogue,
-                                     repos: repo::Repositories) -> HandlerResult {
+                                     repos: repo::Repositories, config: AppConfig) -> HandlerResult {
     let answer = match msg.text() {
         Some(code) => {
             dialogue.exit().await?;
-            
+
             let user = msg.from.as_ref().ok_or("no from user")?;
-            promo_activation_impl(repos.promo, user, code).await?
+            promo_activation_impl(&repos, &config, user, code).await?
         },
         None => {
             let lang_code = LanguageCode::from_maybe_user(msg.from.as_ref());
@@ -101,21 +103,52 @@ pub async fn promo_inline_handler(bot: Bot, query: InlineQuery) -> HandlerResult
     Ok(())
 }
 
-pub(crate) async fn promo_activation_impl(promo_repo: repo::Promo, user: &User, promo_code: &str) -> anyhow::Result<String> {
+pub(crate) async fn promo_activation_impl(repos: &repo::Repositories, config: &AppConfig, user: &User, promo_code: &str) -> anyhow::Result<String> {
     let lang_code = LanguageCode::from_user(user);
-    let answer = match promo_repo.activate(user.id, promo_code).await {
+    let answer = match repos.promo.activate(user.id, promo_code).await {
         Ok(res) => {
             metrics::CMD_PROMO.finished.inc();
+
+            // unlike every other gain, a promo bonus lands in ALL of the user's chats at once,
+            // but debt settlement is inherently per-chat (see
+            // `crate::handlers::debt_settlement::settle_gain_against_debts`) - so each affected
+            // chat is settled independently here. The displayed bonus always stays the gross
+            // value below, even though some chats may silently withhold part of it for debts -
+            // see the project's plan notes for why a per-chat breakdown isn't shown.
+            for chat_internal_id in &res.affected_chat_internal_ids {
+                let Some(chat) = repos.chats.get_chat_by_internal_id(*chat_internal_id).await? else {
+                    log::error!("couldn't resolve chat #{chat_internal_id} after a promo activation for {}", user.id);
+                    continue
+                };
+                let chat_id_partiality: repo::ChatIdPartiality = match chat.try_into() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::error!("couldn't resolve a usable chat id for chat #{chat_internal_id} after a promo activation for {}: {e}", user.id);
+                        continue
+                    }
+                };
+                let chat_id_kind = chat_id_partiality.kind();
+                if let Err(e) = repos.ledger.record_for_chat_kind(&chat_id_kind, user.id, repo::LedgerCategory::Grow, res.bonus_length, None).await {
+                    log::error!("couldn't record a ledger entry for a promo bonus ({}) in chat #{chat_internal_id}: {e}", user.id);
+                }
+                let settlement = settle_gain_against_debts(repos, user.id, &chat_id_kind, res.bonus_length, config.tax.bottom_ranks, true).await
+                    .inspect_err(|e| log::error!("couldn't settle {}'s debts from a promo bonus in chat #{chat_internal_id}: {e}", user.id))
+                    .unwrap_or_default();
+                if settlement.total_withheld > 0 {
+                    if let Err(e) = repos.dicks.grow_no_attempts_check(&chat_id_kind, user.id, -settlement.total_withheld).await {
+                        log::error!("couldn't claw back {}'s own debt settlement after a promo bonus in chat #{chat_internal_id}: {e}", user.id);
+                    }
+                }
+            }
+
             let suffix = if res.chats_affected > 1 {
                 "plural"
             } else {
                 "singular"
             };
-            let chats_in_russian = get_chats_in_russian(res.chats_affected);
             t!("commands.promo.success.template", locale = &lang_code,
                 ending = t!(&format!("commands.promo.success.{suffix}"), locale = &lang_code,
-                    growth = res.bonus_length, affected_chats = res.chats_affected,
-                    word_chats = chats_in_russian))
+                    growth = res.bonus_length, affected_chats = res.chats_affected))
                 .to_string()
         },
         Err(e) => {
@@ -130,14 +163,6 @@ pub(crate) async fn promo_activation_impl(promo_repo: repo::Promo, user: &User, 
     Ok(answer)
 }
 
-fn get_chats_in_russian(count: u64) -> String {
-    match count {
-        1 => "чате",
-        _ => "чатах"
-    }.to_owned()
-}
-
-
 #[cfg(test)]
 mod test {
     use crate::handlers::promo::PROMO_CODE_FORMAT_REGEXP;
@@ -150,5 +175,57 @@ mod test {
         assert!(!PROMO_CODE_FORMAT_REGEXP.is_match("T34"));
         assert!(!PROMO_CODE_FORMAT_REGEXP.is_match("PROMO!"));
         assert!(!PROMO_CODE_FORMAT_REGEXP.is_match("VERYVERYLONGLONGPROMOCODE"));
+    }
+}
+
+#[cfg(test)]
+mod test_debt_settlement {
+    use teloxide::types::{ChatId, User, UserId};
+    use crate::config::AppConfig;
+    use crate::handlers::promo::promo_activation_impl;
+    use crate::repo;
+    use crate::repo::test::dicks::create_user;
+    use crate::repo::test::{start_postgres, UID};
+    use crate::repo::{ChatIdKind, ChatIdPartiality, PromoCodeParams};
+
+    fn test_user() -> User {
+        User {
+            id: UserId(UID as u64), is_bot: false, first_name: "test".to_owned(), last_name: None,
+            username: None, language_code: None, is_premium: false, added_to_attachment_menu: false,
+        }
+    }
+
+    /// A promo bonus lands in every chat the user has a dick in at once, but debt settlement is
+    /// per-chat (bug #3's promo case): a chat where the user is in debt must withhold part of
+    /// the bonus, while an unrelated chat where they aren't must hand over the full amount.
+    #[tokio::test]
+    async fn test_promo_bonus_settles_debts_only_in_the_chat_that_has_them() {
+        let (_container, db) = start_postgres().await;
+        let chat_a: ChatIdPartiality = ChatIdKind::ID(ChatId(67890)).into();
+        let chat_b: ChatIdPartiality = ChatIdKind::ID(ChatId(67891)).into();
+
+        create_user(&db).await;
+        let cfg = AppConfig { loan_payout_ratio: 0.5, ..Default::default() };
+        let repos = repo::Repositories::new(&db, &cfg);
+        repos.dicks.create_or_grow(UserId(UID as u64), &chat_a, 0).await.expect("couldn't create the dick in chat a");
+        repos.dicks.create_or_grow(UserId(UID as u64), &chat_b, 0).await.expect("couldn't create the dick in chat b");
+        repos.loans.borrow(UserId(UID as u64), &chat_a.kind(), 5).await.expect("couldn't create the loan in chat a");
+
+        repos.promo.create(PromoCodeParams { code: "test20".to_owned(), bonus_length: 20, capacity: 1 }).await
+            .expect("couldn't create the promo code");
+
+        let user = test_user();
+        promo_activation_impl(&repos, &cfg, &user, "test20").await.expect("couldn't activate the promo code");
+
+        // chat a: the loan's own disbursement (+5) then the bonus (+20) then 50% of the bonus
+        // withheld, capped at the 5-ghei debt -> 5 + 20 - 5 = 20.
+        let length_a = repos.dicks.fetch_length(UserId(UID as u64), &chat_a.kind()).await.expect("couldn't fetch chat a's length");
+        assert_eq!(length_a, 20);
+        let loan_a = repos.loans.get_active_loan(UserId(UID as u64), &chat_a.kind()).await.expect("couldn't fetch chat a's loan");
+        assert!(loan_a.is_none(), "chat a's 5-ghei loan must be fully repaid (and thus closed) by the promo bonus");
+
+        // chat b: no debt at all, so the full bonus stays - 0 + 20 = 20.
+        let length_b = repos.dicks.fetch_length(UserId(UID as u64), &chat_b.kind()).await.expect("couldn't fetch chat b's length");
+        assert_eq!(length_b, 20);
     }
 }

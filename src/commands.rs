@@ -7,7 +7,12 @@ use teloxide::utils::command::BotCommands;
 use crate::config::CachedEnvToggles;
 use crate::handlers::{DickCommands, DickOfDayCommands, HelpCommands, ImportCommands, LoanCommands, PrivacyCommands, PromoCommands};
 use crate::handlers::pvp::BattleCommands;
+use crate::handlers::donate::DonateCommands;
 use crate::handlers::stats::StatsCommands;
+use crate::handlers::statement::StatementCommands;
+use crate::handlers::tax::TaxCommands;
+use crate::handlers::syntax::SyntaxCommands;
+use crate::handlers::p2p_loan::{P2PLoanCommands, P2PLoanStatusCommands};
 
 pub async fn set_my_commands(bot: &Bot, lang_code: &str, toggles: &CachedEnvToggles) -> Result<(), RequestError> {
     let personal_commands = vec![
@@ -15,14 +20,21 @@ pub async fn set_my_commands(bot: &Bot, lang_code: &str, toggles: &CachedEnvTogg
         PrivacyCommands::bot_commands(),
         PromoCommands::bot_commands(),
         StatsCommands::bot_commands(),
+        SyntaxCommands::bot_commands(),
     ];
     let group_commands = vec![
         HelpCommands::bot_commands(),
         DickCommands::bot_commands(),
         DickOfDayCommands::bot_commands(),
         BattleCommands::bot_commands(),
+        DonateCommands::bot_commands(),
+        TaxCommands::bot_commands(),
+        P2PLoanCommands::bot_commands(),
+        P2PLoanStatusCommands::bot_commands(),
         LoanCommands::bot_commands(),
+        StatementCommands::bot_commands(),
         StatsCommands::bot_commands(),
+        SyntaxCommands::bot_commands(),
     ];
     let admin_commands = [group_commands.clone(), vec![
         ImportCommands::bot_commands(),

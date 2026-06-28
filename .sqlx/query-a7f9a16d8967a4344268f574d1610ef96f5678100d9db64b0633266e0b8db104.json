@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ltd.debt AS amount_owed, ltd.original_debt,\n                    u.name AS \"origin_counterparty_name?\"\n                FROM Loan_Interest_Tax_Debts ltd\n                LEFT JOIN P2P_Loans pl ON pl.id = ltd.source_loan_id\n                LEFT JOIN Users u ON u.uid = CASE WHEN pl.lender_uid = ltd.payer_uid THEN pl.borrower_uid ELSE pl.lender_uid END\n                WHERE ltd.payer_uid = $1\n                    AND ltd.chat_id = (SELECT id FROM Chats WHERE chat_id = $2::bigint OR chat_instance = $2::text)\n                    AND ltd.repaid_at IS NULL\n                ORDER BY ltd.created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "amount_owed",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "original_debt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "origin_counterparty_name?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a7f9a16d8967a4344268f574d1610ef96f5678100d9db64b0633266e0b8db104"
+}

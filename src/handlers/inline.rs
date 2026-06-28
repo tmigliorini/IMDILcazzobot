@@ -14,13 +14,23 @@ use teloxide::types::*;
 use teloxide::types::ParseMode::Html;
 use crate::config::AppConfig;
 use crate::domain::{LanguageCode, Username};
-use crate::handlers::{build_pagination_keyboard, dick, dod, FromRefs, HandlerImplResult, HandlerResult, loan, stats, utils, pvp};
+use crate::handlers::{amount_picker, build_pagination_keyboard, dick, dod, info, loan, tax, utils, wizard, FromRefs, HandlerImplResult, HandlerResult};
 use crate::handlers::utils::callbacks::CallbackDataWithPrefix;
+use crate::handlers::utils::details_store::DetailsStore;
+use crate::handlers::utils::wizard_store::WizardStore;
 use crate::handlers::utils::Incrementor;
 use crate::handlers::utils::page::Page;
 use crate::metrics;
 use crate::repo::{ChatIdFull, NoChatIdError, ChatIdSource, Repositories};
 
+/// The handful of listone entries that need no argument and execute immediately - five of the
+/// six purely-informational ones (stats/debiti/estratto/syntax/presentation) were consolidated
+/// behind a single nested "ℹ️ Info" entry instead (see `info::InfoSection`), and pvp/donate/presta
+/// became amount-picker entries (see `amount_picker`) rather than `InlineCommand` variants. `Tax`
+/// stays a top-level entry like `Loan` instead of joining the Info submenu: unlike those five, it
+/// actually executes a real redistribution, so it needs the same "placeholder text + confirm tap"
+/// round-trip every other action-performing entry gets, not an "ℹ️ Info"-labeled button that
+/// silently mutates state on tap.
 #[derive(Debug, strum_macros::Display, EnumIter, EnumString)]
 #[strum(serialize_all = "snake_case")]
 enum InlineCommand {
@@ -28,7 +38,8 @@ enum InlineCommand {
     Top,
     DickOfDay,
     Loan,
-    Stats,
+    Tax,
+    Wizard,
 }
 
 struct InlineResult {
@@ -55,30 +66,29 @@ impl InlineResult {
 }
 
 impl InlineCommand {
-    async fn execute(&self, repos: &Repositories, config: AppConfig, incr: Incrementor, from_refs: FromRefs<'_>) -> anyhow::Result<InlineResult> {
+    async fn execute(&self, repos: &Repositories, config: AppConfig, incr: Incrementor, from_refs: FromRefs<'_>,
+                     details_store: &DetailsStore, wizard_store: &WizardStore) -> anyhow::Result<InlineResult> {
         match self {
             InlineCommand::Grow => {
                 metrics::CMD_GROW_COUNTER.inline.inc();
-                dick::grow_impl(repos, incr, from_refs)
-                    .await
-                    .map(InlineResult::text)
+                let (text, keyboard) = dick::grow_impl(repos, incr, from_refs, details_store).await?;
+                Ok(InlineResult { text, keyboard })
             },
             InlineCommand::Top => {
                 metrics::CMD_TOP_COUNTER.inline.inc();
-                dick::top_impl(repos, &config, from_refs, Page::first())
+                dick::top_impl(repos, &config, from_refs, Page::first(), dick::TopView::Length)
                     .await
                     .map(|top| {
                         let mut res = InlineResult::text(top.lines);
                         res.keyboard = config.features.top_unlimited
-                            .then_some(build_pagination_keyboard(Page::first(), top.has_more_pages));
+                            .then_some(build_pagination_keyboard(Page::first(), top.has_more_pages, dick::TopView::Length));
                         res
                     })
             },
             InlineCommand::DickOfDay => {
                 metrics::CMD_DOD_COUNTER.inline.inc();
-                dod::dick_of_day_impl(config, repos, incr, from_refs)
-                    .await
-                    .map(InlineResult::text)
+                let (text, keyboard) = dod::dick_of_day_impl(config, repos, incr, from_refs, details_store).await?;
+                Ok(InlineResult { text, keyboard })
             },
             InlineCommand::Loan => {
                 metrics::CMD_LOAN_COUNTER.invoked.inline.inc();
@@ -86,11 +96,16 @@ impl InlineCommand {
                     .await
                     .map(InlineResult::from)
             },
-            InlineCommand::Stats => {
-                metrics::CMD_STATS.inline.inc();
-                stats::chat_stats_impl(repos, from_refs, config.features.pvp)
+            InlineCommand::Tax => {
+                metrics::CMD_TAX_COUNTER.inline.inc();
+                tax::tax_impl(repos, &config, from_refs)
                     .await
                     .map(InlineResult::text)
+            },
+            InlineCommand::Wizard => {
+                let lang_code = LanguageCode::from_user(from_refs.0);
+                let (text, keyboard) = wizard::start(wizard_store, from_refs.0.id, &lang_code);
+                Ok(InlineResult { text, keyboard: Some(keyboard) })
             },
         }
     }
@@ -119,11 +134,26 @@ impl ExternalVariants {
     }
 }
 
+/// The three "default-amount" listone entries: rather than instantly offering a hardcoded default
+/// bet/amount, each one now shows a small amount-picker (see `amount_picker`) - tapping a preset
+/// chip turns it into the same kind of live offer this used to build directly.
 static EXTERNAL_VARIANTS: Lazy<ExternalVariants> = Lazy::new(|| ExternalVariants::new(&[
     ExternalVariant {
-        result_id: "pvp",
-        builder: |query, lang_code, app_config, name| {
-            pvp::build_inline_keyboard_article_result(query.from.id, lang_code, name, app_config.pvp_default_bet)
+        result_id: "pvp-picker",
+        builder: |query, lang_code, app_config, _name| {
+            amount_picker::build_pvp_picker_result(query.from.id, lang_code, app_config)
+        }
+    },
+    ExternalVariant {
+        result_id: "donate-picker",
+        builder: |query, lang_code, app_config, _name| {
+            amount_picker::build_donate_picker_result(query.from.id, lang_code, app_config)
+        }
+    },
+    ExternalVariant {
+        result_id: "presta-picker",
+        builder: |query, lang_code, app_config, _name| {
+            amount_picker::build_presta_picker_result(query.from.id, lang_code, app_config)
         }
     }
 ]));
@@ -155,6 +185,20 @@ pub async fn inline_handler(bot: Bot, query: InlineQuery, repos: Repositories, a
             InlineQueryResult::Article(article)
         })
         .collect();
+
+    // one consolidated entry for the five purely-informational commands (stats/debiti/
+    // estratto/syntax/presentation - see `info::InfoSection`), behind a nested button menu -
+    // unlike the items above, its content is static, so it needs no placeholder/confirm-button
+    // round trip.
+    {
+        let title = t!("inline.results.titles.info", locale = &lang_code);
+        let content = InputMessageContent::Text(InputMessageContentText::new(
+            t!("inline.info_menu.intro", locale = &lang_code)));
+        let article = InlineQueryResultArticle::new("info-menu", title, content)
+            .reply_markup(info::build_menu_keyboard(query.from.id, &lang_code));
+        results.push(InlineQueryResult::Article(article));
+    }
+
     for builder in &EXTERNAL_VARIANTS.builders {
         results.push(builder(&query, &lang_code, &app_config, &name))
     }
@@ -170,10 +214,12 @@ pub async fn inline_handler(bot: Bot, query: InlineQuery, repos: Repositories, a
 
 pub async fn inline_chosen_handler(bot: Bot, result: ChosenInlineResult,
                                    repos: Repositories, config: AppConfig,
-                                   incr: Incrementor) -> HandlerResult {
+                                   incr: Incrementor, details_store: DetailsStore, wizard_store: WizardStore) -> HandlerResult {
     metrics::INLINE_COUNTER.finished();
 
-    if EXTERNAL_VARIANTS.result_ids.contains(result.result_id.as_str()) {
+    // none of these need an eager sync edit: the three amount-pickers and the info-menu are
+    // already fully rendered at answer-time (see `inline_handler`).
+    if EXTERNAL_VARIANTS.result_ids.contains(result.result_id.as_str()) || result.result_id == "info-menu" {
         return Ok(())
     }
 
@@ -191,7 +237,7 @@ pub async fn inline_chosen_handler(bot: Bot, result: ChosenInlineResult,
                 .context(format!("couldn't parse inline command '{}'", result.result_id))?;
             let chat_id = chat.try_into().map_err(|e: NoChatIdError| anyhow!(e))?;
             let from_refs = FromRefs(&result.from, &chat_id);
-            let inline_result = cmd.execute(&repos, config, incr, from_refs).await?;
+            let inline_result = cmd.execute(&repos, config, incr, from_refs, &details_store, &wizard_store).await?;
 
             let inline_message_id = result.inline_message_id
                 .ok_or("inline_message_id must be set if the chat_in_sync_future exists")?;
@@ -209,7 +255,7 @@ pub async fn inline_chosen_handler(bot: Bot, result: ChosenInlineResult,
 
 pub async fn callback_handler(bot: Bot, query: CallbackQuery,
                               repos: Repositories, config: AppConfig,
-                              incr: Incrementor) -> HandlerResult {
+                              incr: Incrementor, details_store: DetailsStore, wizard_store: WizardStore) -> HandlerResult {
     let lang_code = LanguageCode::from_user(&query.from);
     let mut answer = bot.answer_callback_query(&query.id);
 
@@ -232,7 +278,7 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery,
         let parse_res = parse_callback_data(data, query.from.id);
         if let Ok(CallbackDataParseResult::Ok(cmd)) = parse_res {
             let from_refs = FromRefs(&query.from, &chat_id);
-            let inline_result = cmd.execute(&repos, config, incr, from_refs).await?;
+            let inline_result = cmd.execute(&repos, config, incr, from_refs, &details_store, &wizard_store).await?;
             let mut edit = bot.edit_message_text_inline(inline_msg_id, &inline_result.text);
             edit.reply_markup = inline_result.keyboard;
             edit.parse_mode.replace(Html);

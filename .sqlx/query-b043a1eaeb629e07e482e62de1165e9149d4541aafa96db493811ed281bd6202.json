@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO Battle_Stats(uid, chat_id, battles_total, battles_won, win_streak_current, lose_streak_current, acquired_length) VALUES ($1, $2, 1, 1, 1, 0, $3) ON CONFLICT (uid, chat_id) DO UPDATE SET battles_total = Battle_Stats.battles_total + 1, battles_won = Battle_Stats.battles_won + 1, win_streak_current = Battle_Stats.win_streak_current + 1, lose_streak_current = 0, acquired_length = Battle_Stats.acquired_length + $3 RETURNING battles_total, battles_won, win_streak_max, win_streak_current, lose_streak_max, lose_streak_current, acquired_length, lost_length",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "battles_total",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "battles_won",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "win_streak_max",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 3,
+        "name": "win_streak_current",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 4,
+        "name": "lose_streak_max",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 5,
+        "name": "lose_streak_current",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 6,
+        "name": "acquired_length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "lost_length",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b043a1eaeb629e07e482e62de1165e9149d4541aafa96db493811ed281bd6202"
+}

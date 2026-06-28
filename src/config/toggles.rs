@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-const CACHED_ENV_TOGGLES_POISONED_MSG: &str = "CachedEnvToggles map was poisoned";
-
 #[derive(Copy, Clone, Default, derive_more::FromStr, derive_more::Display)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum DickOfDaySelectionMode {
@@ -40,6 +38,7 @@ pub struct BattlesFeatureToggles {
     pub callback_locks: bool,
     pub show_stats: bool,
     pub show_stats_notice: bool,
+    pub skill_based_probability: bool,
 }
 
 #[derive(Clone, Default)]
@@ -50,12 +49,15 @@ pub struct CachedEnvToggles {
 impl CachedEnvToggles {
     pub fn enabled(&self, key: &str) -> bool {
         log::debug!("trying to take a read lock for key '{key}'...");
-        let maybe_enabled = self.map.read().expect(CACHED_ENV_TOGGLES_POISONED_MSG).get(key).copied();
+        // a poisoned lock just means some other thread panicked while holding it; the map itself
+        // (plain bools keyed by command name) is never left in a half-written state by a single
+        // insert, so recovering the guard instead of propagating the panic here is safe.
+        let maybe_enabled = self.map.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(key).copied();
         // maybe_enabled is required to drop the read lock
         maybe_enabled.unwrap_or_else(|| {
             let enabled = Self::enabled_in_env(key);
             log::debug!("trying to take a write lock for key '{key}'...");
-            self.map.write().expect(CACHED_ENV_TOGGLES_POISONED_MSG)
+            self.map.write().unwrap_or_else(|poisoned| poisoned.into_inner())
                 .insert(key.to_owned(), enabled);
             enabled
         })

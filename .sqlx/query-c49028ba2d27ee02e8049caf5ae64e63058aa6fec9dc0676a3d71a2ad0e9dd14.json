@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO Ledger (uid, chat_id, category, amount, counterparty_uid) VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        {
+          "Custom": {
+            "name": "ledger_category",
+            "kind": {
+              "Enum": [
+                "grow",
+                "pvp",
+                "donate",
+                "loan_interest",
+                "tax",
+                "loan_principal"
+              ]
+            }
+          }
+        },
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c49028ba2d27ee02e8049caf5ae64e63058aa6fec9dc0676a3d71a2ad0e9dd14"
+}

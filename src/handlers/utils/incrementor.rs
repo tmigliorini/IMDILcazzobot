@@ -11,6 +11,8 @@ use rand::rngs::OsRng;
 use rust_i18n::t;
 use teloxide::types::UserId;
 use crate::{config, repo};
+use crate::domain::LanguageCode;
+use crate::handlers::debt_settlement;
 use crate::repo::ChatIdKind;
 
 #[derive(Clone)]
@@ -56,12 +58,35 @@ pub struct ChangeIntent {
     pub base_increment: i32,
 }
 
-#[derive(Copy, Clone)]
-pub struct AdditionalChange(pub i32);
+/// `value` is the perk's numeric contribution, as before; `details` are (recipient name, amount,
+/// remaining-debt-to-that-recipient-afterwards) triples naming who else a transfer-like perk
+/// (e.g. a P2P loan repayment) actually moved ghei to/from, beyond the generic "(perk-name)
+/// (+/-value)" summary line - kept as raw data rather than a pre-formatted string since `apply`
+/// has no access to the player's language (only `perks_part_of_answer`, further downstream,
+/// does). The third element is `None` when "remaining debt to this specific name" isn't a
+/// meaningful concept (e.g. a tax-debt redistribution recipient isn't a creditor - see
+/// `debt_settlement::settle_gain_against_debts`). Most perks have nothing to add here and leave
+/// it empty.
+#[derive(Clone, Default)]
+pub struct AdditionalChange {
+    pub value: i32,
+    pub details: Vec<(String, u16, Option<u16>)>,
+}
+
+impl AdditionalChange {
+    pub fn new(value: i32) -> Self {
+        Self { value, details: Vec::new() }
+    }
+
+    pub fn with_details(value: i32, details: Vec<(String, u16, Option<u16>)>) -> Self {
+        Self { value, details }
+    }
+}
 
 pub struct Increment<T: PrimInt + std::fmt::Display> {
     pub base: T,
     pub by_perks: HashMap<String, i32>,
+    pub detail_lines: Vec<(String, u16, Option<u16>)>,
     pub total: T,
 }
 
@@ -126,12 +151,12 @@ impl Incrementor {
 
     pub async fn growth_increment(&self, user_id: UserId, chat_id: ChatIdKind, days_since_registration: u32) -> SignedIncrement {
         let dick_id = DickId(user_id, chat_id);
-        let grow_shrink_ratio = if days_since_registration > self.config.newcomers_grace_days {
+        let shrink_ratio = if days_since_registration > self.config.newcomers_grace_days {
             self.config.grow_shrink_ratio
         } else {
-            1.0
+            0.0
         };
-        let base_incr = get_base_increment(self.config.growth_range.clone(), grow_shrink_ratio);
+        let base_incr = get_base_increment(self.config.growth_range.clone(), shrink_ratio);
         self.add_additional_incr(dick_id, BaseIncrement(base_incr)).await
     }
 
@@ -161,14 +186,16 @@ impl Incrementor {
 
         let mut additional_change = 0;
         let mut by_perks = HashMap::new();
+        let mut detail_lines = Vec::new();
         for perk in self.perks.iter() {
-            let AdditionalChange(ac) = perk.apply(&dick, change_intent).await;
+            let AdditionalChange { value: ac, details } = perk.apply(&dick, change_intent).await;
             if !ac.is_zero() {
                 by_perks.insert(perk.name().to_owned(), ac);
             }
+            detail_lines.extend(details);
             additional_change += ac
         }
-        
+
         let base = <R as From<T>>::from(base_increment.0);
         let total = change_intent.base_increment.checked_add(additional_change)
             .map(R::try_from)
@@ -177,13 +204,14 @@ impl Incrementor {
                 log::error!("overflow on increment calculation for {dick}: base={base}, additional={additional_change}");
                 base
             });
-        
+
         if base == total && !additional_change.is_zero() {
             log::info!("The following perks affected the calculation: {by_perks:?}");
             by_perks.clear();
+            detail_lines.clear();
         }
-        
-        Increment { base, by_perks, total }
+
+        Increment { base, by_perks, detail_lines, total }
     }
 }
 
@@ -199,6 +227,7 @@ impl <T: PrimInt + Into<i16>> BaseIncrement<T> {
         Increment {
             base: value,
             by_perks: HashMap::default(),
+            detail_lines: Vec::new(),
             total: value
         }
     }
@@ -208,11 +237,26 @@ impl <T: PrimInt + Into<i16>> BaseIncrement<T> {
     }
 }
 
-impl <T: PrimInt + std::fmt::Display + Into<i32>> Increment<T> {    
-    pub fn perks_part_of_answer(&self, lang_code: &str) -> String {
-        if self.base != self.total {
+impl <T: PrimInt + std::fmt::Display + Into<i32>> Increment<T> {
+    pub fn perks_part_of_answer(&self, lang_code: &LanguageCode) -> String {
+        if self.base == self.total {
+            return String::default()
+        }
+
+        // `debt-payout` gets its own dedicated, hard-to-miss wording (shared with PVP/donations/
+        // tax/promo - see `debt_settlement::format_withheld_message`) instead of being folded
+        // into the generic "Perks:" block below as just another delta among others. It's the only
+        // perk that ever populates `detail_lines`, so it's safe to attribute all of them to it.
+        let debt_payout = self.by_perks.get("debt-payout").copied();
+        let other_perks: Vec<_> = self.by_perks.iter()
+            .filter(|(name, _)| name.as_str() != "debt-payout")
+            .collect();
+
+        let perks_block = if other_perks.is_empty() {
+            String::default()
+        } else {
             let top_line = t!("titles.perks.top_line", locale = lang_code);
-            let perks = self.by_perks.iter()
+            let perks = other_perks.iter()
                 .map(|(perk, value)| {
                     let t_key = format!("titles.perks.{perk}");
                     let name = t!(&t_key, locale = lang_code);
@@ -221,17 +265,20 @@ impl <T: PrimInt + std::fmt::Display + Into<i32>> Increment<T> {
                 .collect::<Vec<String>>()
                 .join("\n");
             format!("\n\n{top_line}:\n{perks}")
-        } else {
-            String::default()
-        }
+        };
+        let withheld_block = match debt_payout {
+            Some(value) if value < 0 => debt_settlement::format_withheld_message(-value, &self.detail_lines, lang_code),
+            _ => String::default(),
+        };
+        format!("{perks_block}{withheld_block}")
     }
 }
 
-fn get_base_increment<T>(range: RangeInclusive<T>, sign_ratio: f32) -> T
+fn get_base_increment<T>(range: RangeInclusive<T>, shrink_ratio: f32) -> T
 where
     T: PrimInt + PartialOrd + SampleUniform + From<i8>
 {
-    let sign_ratio_percent = match (sign_ratio * 100.0).round() as u32 {
+    let shrink_ratio_percent = match (shrink_ratio * 100.0).round() as u32 {
         ..=0 => 0,
         100.. => 100,
         x => x
@@ -241,15 +288,15 @@ where
     if range.start() > &zero {
         return rng.gen_range(range)
     }
-    let positive = rng.gen_ratio(sign_ratio_percent, 100);
-    if positive {
-        let end = *range.end();
-        let one = <T as From<i8>>::from(1);
-        rng.gen_range(one..=end)
-    } else {
+    let negative = rng.gen_ratio(shrink_ratio_percent, 100);
+    if negative {
         let start = *range.start();
         let minus_one = <T as From<i8>>::from(-1);
         rng.gen_range(start..=minus_one)
+    } else {
+        let end = *range.end();
+        let one = <T as From<i8>>::from(1);
+        rng.gen_range(one..=end)
     }
 }
 
@@ -267,6 +314,15 @@ mod test {
         assert!(increments.iter().all(|n| n != &0));
         assert!(increments.iter().all(|n| n <= &10));
         assert!(increments.iter().all(|n| n >= &-5));
+    }
+
+    #[test]
+    fn test_gen_increment_shrink_ratio_direction() {
+        let always_positive: Vec<i32> = (0..50).map(|_| get_base_increment(-5..=10, 0.0)).collect();
+        assert!(always_positive.iter().all(|n| n > &0));
+
+        let always_negative: Vec<i32> = (0..50).map(|_| get_base_increment(-5..=10, 1.0)).collect();
+        assert!(always_negative.iter().all(|n| n < &0));
     }
 
     #[test]
@@ -361,7 +417,7 @@ mod test_incrementor {
         }
 
         async fn apply(&self, _: &DickId, _: ChangeIntent) -> AdditionalChange {
-            AdditionalChange(self.value)
+            AdditionalChange::new(self.value)
         }
 
         fn enabled(&self) -> bool {

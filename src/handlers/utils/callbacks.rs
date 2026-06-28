@@ -41,6 +41,15 @@ impl <T> From<Option<T>> for NewLayoutValue<T> {
     }
 }
 
+impl <T> NewLayoutValue<T> {
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> NewLayoutValue<U> {
+        match self {
+            NewLayoutValue::Some(x) => NewLayoutValue::Some(f(x)),
+            NewLayoutValue::None => NewLayoutValue::None
+        }
+    }
+}
+
 pub struct InvalidCallbackDataBuilder<'a, T: ToString>(pub &'a T);
 
 impl <'a, T: ToString> InvalidCallbackDataBuilder<'a, T> {

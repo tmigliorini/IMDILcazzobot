@@ -9,6 +9,11 @@ const PROMOCODE_ACTIVATIONS_PK: &str = "promo_code_activations_pkey";
 pub struct ActivationResult {
     pub chats_affected: u64,
     pub bonus_length: i32,
+    /// The internal `Chats.id` of every chat the bonus was actually applied to - the bonus is
+    /// cross-chat (every chat the user has a `Dicks` row in), but debt settlement is per-chat
+    /// (see `crate::handlers::promo::promo_activation_impl`), so the caller needs to know which
+    /// chats to settle against, not just how many.
+    pub affected_chat_internal_ids: Vec<i64>,
 }
 
 #[derive(Debug, strum_macros::Display)]
@@ -55,7 +60,8 @@ repository!(Promo,
         let PromoCodeInfo { found_code, bonus_length } = Self::find_code_length_and_decr_capacity(&mut tx, code)
             .await?
             .ok_or(ActivationError::NoActivationsLeft)?;
-        let chats_affected = Self::grow_dicks(&mut tx, user_id, bonus_length).await?;
+        let affected_chat_internal_ids = Self::grow_dicks(&mut tx, user_id, bonus_length).await?;
+        let chats_affected = affected_chat_internal_ids.len() as u64;
         if chats_affected < 1 {
             return Err(ActivationError::NoDicks)
         }
@@ -75,7 +81,7 @@ repository!(Promo,
             })?;
 
         tx.commit().await?;
-        Ok(ActivationResult{ chats_affected, bonus_length })
+        Ok(ActivationResult{ chats_affected, bonus_length, affected_chat_internal_ids })
     }
 ,
     async fn find_code_length_and_decr_capacity(tx: &mut sqlx::Transaction<'_, Postgres>, code: &str) -> anyhow::Result<Option<PromoCodeInfo>> {
@@ -92,14 +98,18 @@ repository!(Promo,
             .context(format!("couldn't find a promo code length of {code}"))
     }
 ,
-    async fn grow_dicks(tx: &mut sqlx::Transaction<'_, Postgres>, user_id: UserId, bonus: i32) -> anyhow::Result<u64> {
-        let rows_affected = sqlx::query!("UPDATE Dicks SET bonus_attempts = (bonus_attempts + 1), length = (length + $2) WHERE uid = $1",
+    /// Unlike most other gains, a promo bonus is cross-chat in one shot - every chat the user
+    /// has a `Dicks` row in gets it. Debt settlement, by contrast, is per-chat (see
+    /// `crate::handlers::debt_settlement::settle_gain_against_debts`), so the caller needs each
+    /// affected chat's internal id to settle against, not just a count - hence `RETURNING
+    /// chat_id` instead of the plain row count this used to return.
+    async fn grow_dicks(tx: &mut sqlx::Transaction<'_, Postgres>, user_id: UserId, bonus: i32) -> anyhow::Result<Vec<i64>> {
+        let chat_internal_ids = sqlx::query_scalar!("UPDATE Dicks SET bonus_attempts = (bonus_attempts + 1), length = (length + $2) WHERE uid = $1 RETURNING chat_id",
                 user_id.0 as i64, bonus)
-            .execute(&mut **tx)
+            .fetch_all(&mut **tx)
             .await
-            .context(format!("couldn't grow dicks of {user_id} by {bonus}"))?
-            .rows_affected();
-        Ok(rows_affected)
+            .context(format!("couldn't grow dicks of {user_id} by {bonus}"))?;
+        Ok(chat_internal_ids)
     }
 ,
     async fn add_activation(tx: &mut sqlx::Transaction<'_, Postgres>, uid: UserId, code: &str, affected_chats: u64) -> anyhow::Result<()> {

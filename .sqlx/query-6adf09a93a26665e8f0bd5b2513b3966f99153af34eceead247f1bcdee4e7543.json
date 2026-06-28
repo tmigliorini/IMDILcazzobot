@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT category as \"category: LedgerCategory\",\n                      coalesce(-sum(amount) FILTER (WHERE amount < 0), 0) as \"dare!\",\n                      coalesce(sum(amount) FILTER (WHERE amount > 0), 0) as \"avere!\"\n               FROM Ledger WHERE chat_id = $1 GROUP BY category",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "category: LedgerCategory",
+        "type_info": {
+          "Custom": {
+            "name": "ledger_category",
+            "kind": {
+              "Enum": [
+                "grow",
+                "pvp",
+                "donate",
+                "loan_interest",
+                "tax",
+                "loan_principal"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dare!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "avere!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "6adf09a93a26665e8f0bd5b2513b3966f99153af34eceead247f1bcdee4e7543"
+}

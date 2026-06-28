@@ -3,6 +3,26 @@ use anyhow::anyhow;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use byteorder::{LittleEndian, ReadBytesExt};
+use teloxide::types::{CallbackQuery, ChatId};
+use crate::repo::ChatIdPartiality;
+
+/// Resolves the chat a callback query belongs to, whether it came from a regular message
+/// or (when chats merging is enabled) from an inline message that has to be decoded.
+pub fn resolve_callback_chat_id(query: &CallbackQuery, chats_merging_enabled: bool) -> ChatIdPartiality {
+    query.message.as_ref()
+        .map(|msg| msg.chat().id)
+        .or_else(|| chats_merging_enabled
+            .then_some(query.inline_message_id.as_ref())
+            .flatten()
+            .and_then(|msg_id| resolve_inline_message_id(msg_id)
+                .inspect_err(|e| log::error!("couldn't resolve inline_message_id: {e}"))
+                .ok()
+            )
+            .map(|info| ChatId(info.chat_id))
+        )
+        .map(ChatIdPartiality::from)
+        .unwrap_or(ChatIdPartiality::from(query.chat_instance.clone()))
+}
 
 #[derive(Debug)]
 #[allow(dead_code)]

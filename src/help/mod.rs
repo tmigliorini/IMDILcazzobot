@@ -14,12 +14,19 @@ pub struct HelpContainer {
 }
 
 impl HelpContainer {
-    pub fn get_start_message(&self, username: Username, lang_code: LanguageCode) -> String {
+    /// `lmo_intro` is the bot's actual default/active locale's text, loaded from an external
+    /// file at startup (see `crate::external_text::ExternalTexts`) so it can be edited without
+    /// a rebuild - it's not covered by the EN/RU-only `SupportedLanguage` mapping used elsewhere,
+    /// so it's checked explicitly first.
+    pub fn get_start_message(&self, username: Username, lang_code: LanguageCode, lmo_intro: &str) -> String {
         let greeting = t!("titles.greeting", locale = &lang_code);
-        format!("{}, <b>{}</b>!\n\n{}", greeting, username.escaped(), self.get_help_message(lang_code))
+        format!("{}, <b>{}</b>!\n\n{}", greeting, username.escaped(), self.get_help_message(lang_code, lmo_intro))
     }
 
-    pub fn get_help_message(&self, lang_code: LanguageCode) -> String {
+    pub fn get_help_message(&self, lang_code: LanguageCode, lmo_intro: &str) -> String {
+        if lang_code.as_str() == "lmo" {
+            return lmo_intro.to_owned()
+        }
         match lang_code.to_supported_language() {
             RU => self.ru.clone(),
             EN => self.en.clone()

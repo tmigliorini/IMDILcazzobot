@@ -111,6 +111,14 @@ repository!(Users,
             .context(format!("couldn't get a user with id = {user_id}"))
     }
 ,
+    pub async fn find_by_exact_name(&self, name: &str) -> anyhow::Result<Vec<User>> {
+        sqlx::query_as!(User, "SELECT uid, name, created_at FROM Users WHERE lower(name) = lower($1)",
+                name)
+            .fetch_all(&self.pool)
+            .await
+            .context(format!("couldn't find users with the name = {name}"))
+    }
+,
     #[cfg(test)]
     pub async fn get_all(&self) -> anyhow::Result<Vec<User>> {
         sqlx::query_as!(User, "SELECT * FROM Users")

@@ -1,6 +1,9 @@
 pub mod page;
 pub mod callbacks;
 pub mod locks;
+pub mod inline_target;
+pub mod details_store;
+pub mod wizard_store;
 mod tghack;
 mod incrementor;
 

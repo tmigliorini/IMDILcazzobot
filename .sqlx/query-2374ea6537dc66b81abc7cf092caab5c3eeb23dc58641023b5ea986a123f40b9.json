@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT length, uid as owner_uid, name as owner_name, updated_at as grown_at, position,\n                    battles_total as \"battles_total!\", battles_won as \"battles_won!\" FROM (\n                 SELECT d.uid, name, d.length as length, updated_at,\n                        ROW_NUMBER() OVER (ORDER BY length DESC, updated_at DESC, name) AS position,\n                        COALESCE(bs.battles_total, 0) AS battles_total,\n                        COALESCE(bs.battles_won, 0) AS battles_won\n                   FROM Dicks d\n                   JOIN users using (uid)\n                   JOIN Chats c ON d.chat_id = c.id\n                   LEFT JOIN Battle_Stats bs ON bs.uid = d.uid AND bs.chat_id = d.chat_id\n                   WHERE c.chat_id = $2::bigint OR c.chat_instance = $2::text\n               ) AS _\n               WHERE uid = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "length",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "owner_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "grown_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "position",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "battles_total!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "battles_won!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2374ea6537dc66b81abc7cf092caab5c3eeb23dc58641023b5ea986a123f40b9"
+}

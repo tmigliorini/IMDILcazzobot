@@ -5,16 +5,24 @@ use teloxide::types::UserId;
 use crate::config;
 use crate::repo::{ChatIdKind, Chats, Dicks, ensure_only_one_row_updated};
 
+/// `created_at` is exposed for the unified, oldest-first repayment queue shared with P2P loans
+/// and loan-interest tax debts (see `crate::handlers::debt_settlement`) - widened from the
+/// column's actual `date` (day granularity only, unlike the other two tables' `timestamptz`) to
+/// midnight UTC of that day, so it's directly comparable; ties between a bank loan and another
+/// obligation created the same day are an accepted approximation; this codebase's other tables
+/// don't need day-only precision, so there's no shared "creation date" type to reuse instead.
 #[derive(Debug)]
 pub struct Loan {
     pub debt: u16,
     pub payout_ratio: f32,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 struct LoanEntity {
     id: i32,
     debt: i32,
-    payout_ratio: f32
+    payout_ratio: f32,
+    created_at: chrono::NaiveDate,
 }
 
 impl TryFrom<LoanEntity> for Loan {
@@ -23,7 +31,8 @@ impl TryFrom<LoanEntity> for Loan {
     fn try_from(value: LoanEntity) -> Result<Self, Self::Error> {
         Ok(Self {
             debt: value.debt.try_into()?,
-            payout_ratio: value.payout_ratio
+            payout_ratio: value.payout_ratio,
+            created_at: value.created_at.and_time(chrono::NaiveTime::MIN).and_utc(),
         })
     }
 }
@@ -44,7 +53,7 @@ impl Loans {
 
     pub async fn get_active_loan(&self, uid: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Option<Loan>> {
         let maybe_loan = sqlx::query_as!(LoanEntity,
-            "SELECT id, debt, payout_ratio FROM loans
+            "SELECT id, debt, payout_ratio, created_at FROM loans
                     WHERE uid = $1 AND
                     chat_id = (SELECT id FROM Chats WHERE chat_id = $2::bigint OR chat_instance = $2::text)
                     AND repaid_at IS NULL",
@@ -89,7 +98,7 @@ impl Loans {
 
 async fn get_active_loan(tx: &mut Transaction<'_, Postgres>, uid: UserId, chat_internal_id: i64) -> anyhow::Result<Option<LoanEntity>> {
     let maybe_loan = sqlx::query_as!(LoanEntity,
-            "SELECT id, debt, payout_ratio FROM loans
+            "SELECT id, debt, payout_ratio, created_at FROM loans
                     WHERE uid = $1 AND chat_id = $2
                     AND repaid_at IS NULL",
                 uid.0 as i64, chat_internal_id)

@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.category as \"category: LedgerCategory\", l.amount, l.created_at,\n                      l.counterparty_uid as \"counterparty_uid?\", u.name as \"counterparty_name?\"\n               FROM Ledger l\n               LEFT JOIN Users u ON u.uid = l.counterparty_uid\n               WHERE l.uid = $1 AND l.chat_id = $2\n               ORDER BY l.created_at DESC, l.id DESC\n               LIMIT $3 OFFSET $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "category: LedgerCategory",
+        "type_info": {
+          "Custom": {
+            "name": "ledger_category",
+            "kind": {
+              "Enum": [
+                "grow",
+                "pvp",
+                "donate",
+                "loan_interest",
+                "tax",
+                "loan_principal"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "counterparty_uid?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "counterparty_name?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "729506fe05c30dc686923f0fc5261a1be949a8bb4d20aed5c6560243da516306"
+}

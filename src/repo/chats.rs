@@ -45,6 +45,18 @@ repository!(Chats, with_feature_toggles,
             .context(format!("couldn't get the information about the chat with id = {chat_id}"))
     }
 ,
+    /// The reverse of `get_internal_id`: resolves an internal `Chats.id` (e.g. one of `Dicks`'
+    /// own `chat_id` foreign keys, as returned by a cross-chat write like a promo code
+    /// activation) back to a `Chat` so its `ChatIdKind` can be recovered for per-chat operations
+    /// like debt settlement (see `crate::handlers::promo::promo_activation_impl`).
+    pub async fn get_chat_by_internal_id(&self, internal_id: i64) -> anyhow::Result<Option<Chat>> {
+        sqlx::query_as!(Chat, "SELECT id as internal_id, chat_id, chat_instance FROM Chats WHERE id = $1",
+                internal_id)
+            .fetch_optional(&self.pool)
+            .await
+            .context(format!("couldn't get the chat with internal id = {internal_id}"))
+    }
+,
     pub async fn get_internal_id(&self, chat_id: &ChatIdKind) -> Result<i64, SearchError<ChatIdKind>> {
         self.get_chat(chat_id.clone()).await
             .map_err(SearchError::Internal)?

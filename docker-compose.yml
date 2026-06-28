@@ -20,10 +20,19 @@ services:
       - TOP_UNLIMITED_ENABLED
       - MULTIPLE_LOANS_ENABLED
       - PVP_DEFAULT_BET
+      - DONATE_DEFAULT_AMOUNT
+      - P2P_LOAN_DEFAULT_AMOUNT
+      - P2P_LOAN_INTEREST_RATE
+      - P2P_LOAN_PAYOUT_RATIO
+      - P2P_LOAN_INTEREST_TAX_RATE
       - PVP_CHECK_ACCEPTOR_LENGTH
       - PVP_CALLBACK_LOCKS_ENABLED
       - PVP_STATS_SHOW
       - PVP_STATS_SHOW_NOTICE
+      - PVP_SKILL_BASED_PROBABILITY
+      - TAX_TOP_RANKS
+      - TAX_MAX_RATE
+      - TAX_BOTTOM_RANKS
       - GROWTH_MIN
       - GROWTH_MAX
       - GROW_SHRINK_RATIO
@@ -37,6 +46,9 @@ services:
       - ANNOUNCEMENT_MAX_SHOWS
       - ANNOUNCEMENT_EN
       - ANNOUNCEMENT_RU
+      - BOT_TEXT_DIR=/bot-text
+    volumes:
+      - ./bot-text:/bot-text:ro
     expose:
       - 8080
     networks:

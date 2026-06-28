@@ -1,10 +1,9 @@
-use std::borrow::ToOwned;
 use std::ops::Deref;
 use derive_more::{Constructor, From};
 use once_cell::sync::Lazy;
 use teloxide::types::User;
 
-static DEFAULT: Lazy<LanguageCode> = Lazy::new(|| LanguageCode("en".to_string()));
+static DEFAULT: Lazy<LanguageCode> = Lazy::new(|| LanguageCode("lmo".to_string()));
 static RU_SPEAKING_LOCALES: [&str; 3] = ["ru", "uk", "be"];
 
 #[derive(Clone, Debug, Constructor, From)]
@@ -19,14 +18,12 @@ pub enum SupportedLanguage {
 }
 
 impl LanguageCode {
-    pub fn from_user(user: &User) -> Self {
-        let maybe_code = Self::get_language_code_or_log_if_missing(user);
-        Self::from_maybe_string(maybe_code)
+    pub fn from_user(_user: &User) -> Self {
+        DEFAULT.clone()
     }
 
-    pub fn from_maybe_user(maybe_user: Option<&User>) -> Self {
-        let maybe_code = maybe_user.and_then(Self::get_language_code_or_log_if_missing);
-        Self::from_maybe_string(maybe_code)
+    pub fn from_maybe_user(_maybe_user: Option<&User>) -> Self {
+        DEFAULT.clone()
     }
 
     pub fn as_str(&self) -> &str {
@@ -42,21 +39,6 @@ impl LanguageCode {
         } else {
             SupportedLanguage::EN
         }
-    }
-
-    fn get_language_code_or_log_if_missing(user: &User) -> Option<&String> {
-        user.language_code.as_ref()
-            .or_else(|| {
-                log::debug!("no language_code for {}, using the default", user.id);
-                None
-            })
-    }
-
-    fn from_maybe_string(maybe_string: Option<&String>) -> Self {
-        maybe_string
-            .map(ToOwned::to_owned)
-            .map(Self)
-            .unwrap_or_else(|| DEFAULT.clone())
     }
 }
 
@@ -81,7 +63,7 @@ impl From<Option<&User>> for LanguageCode {
 }
 
 #[cfg(test)]
-mod test_from_maybe_string {
+mod test_to_supported_language {
     use crate::domain::LanguageCode;
     use crate::domain::SupportedLanguage::{EN, RU};
 
@@ -98,17 +80,14 @@ mod test_from_maybe_string {
         let cases = ru.into_iter().chain(en);
 
         for (case, expected) in cases {
-            let value = case.to_string();
-            let result = LanguageCode::from_maybe_string(Some(&value));
+            let result = LanguageCode::new(case.to_string());
             assert_eq!(result.to_supported_language(), expected, "Case: {case}, result: {result:?}")
         }
     }
 
     #[test]
     fn empty() {
-        for case in [Some(&"".to_string()), None] {
-            let result = LanguageCode::from_maybe_string(case);
-            assert_eq!(result.to_supported_language(), EN)
-        }
+        let result = LanguageCode::new("".to_string());
+        assert_eq!(result.to_supported_language(), EN)
     }
 }

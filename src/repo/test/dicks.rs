@@ -3,7 +3,7 @@ use sqlx::{Pool, Postgres};
 use teloxide::types::{ChatId, UserId};
 use crate::config::FeatureToggles;
 use crate::repo;
-use crate::repo::{ChatIdKind, ChatIdPartiality};
+use crate::repo::{ChatIdKind, ChatIdPartiality, WinRateAware};
 use crate::repo::test::{CHAT_ID, get_chat_id_and_dicks, NAME, start_postgres, UID};
 
 #[tokio::test]
@@ -137,6 +137,42 @@ async fn test_pvp() {
         assert_eq!(gr2.pos_in_top, Some(1));
         assert_eq!(gr1.pos_in_top, Some(2));
     }
+}
+
+#[tokio::test]
+async fn test_top_with_win_rate() {
+    let (_container, db) = start_postgres().await;
+    let dicks = repo::Dicks::new(db.clone(), Default::default());
+    let pvp_stats = repo::BattleStatsRepo::new(db.clone(), Default::default());
+    let chat_id = ChatIdKind::ID(ChatId(CHAT_ID));
+    let chat_id_partiality: ChatIdPartiality = chat_id.clone().into();
+
+    create_user(&db).await;
+    create_dick(&db).await;
+    let uid_1 = UserId(UID as u64);
+    create_user_and_dick_2(&db, &chat_id_partiality, "User-2").await;
+    let uid_2 = UserId((UID + 1) as u64);
+
+    let top = dicks.get_top(&chat_id, 0, 2)
+        .await.expect("couldn't fetch the top before any battle");
+    assert!(top.iter().all(|d| d.battles_total == 0 && d.battles_won == 0));
+    assert!(top.iter().all(|d| d.win_rate_percentage() == 0.0));
+
+    pvp_stats.send_battle_result(&chat_id, uid_1, uid_2, 1)
+        .await.expect("couldn't send the battle result");
+
+    let top = dicks.get_top(&chat_id, 0, 2)
+        .await.expect("couldn't fetch the top after the battle");
+    let winner = top.iter().find(|d| d.owner_uid.0 == uid_1.0 as i64)
+        .expect("the winner is not in the top");
+    assert_eq!(winner.battles_total, 1);
+    assert_eq!(winner.battles_won, 1);
+    assert_eq!(winner.win_rate_percentage(), 100.0);
+    let loser = top.iter().find(|d| d.owner_uid.0 == uid_2.0 as i64)
+        .expect("the loser is not in the top");
+    assert_eq!(loser.battles_total, 1);
+    assert_eq!(loser.battles_won, 0);
+    assert_eq!(loser.win_rate_percentage(), 0.0);
 }
 
 pub async fn create_user(db: &Pool<Postgres>) {

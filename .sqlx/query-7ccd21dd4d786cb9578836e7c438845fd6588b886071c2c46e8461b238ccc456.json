@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT net AS \"net!\", raw_length AS \"raw_length!\", owner_uid, owner_name, grown_at,\n                    ROW_NUMBER() OVER (ORDER BY net DESC, grown_at DESC, owner_name) AS position\n                FROM (\n                    SELECT\n                        (d.length\n                            - COALESCE(bank.debt, 0)\n                            - COALESCE(borrow.debt, 0)\n                            + COALESCE(lend.debt, 0)\n                            - COALESCE(tax.debt, 0)\n                        )::int AS net,\n                        d.length AS raw_length,\n                        d.uid AS owner_uid, u.name AS owner_name, d.updated_at AS grown_at\n                    FROM dicks d\n                    JOIN users u ON u.uid = d.uid\n                    JOIN chats c ON c.id = d.chat_id\n                    LEFT JOIN loans bank ON bank.uid = d.uid AND bank.chat_id = d.chat_id AND bank.repaid_at IS NULL\n                    LEFT JOIN (\n                        SELECT borrower_uid, chat_id, SUM(debt) AS debt FROM p2p_loans\n                            WHERE repaid_at IS NULL GROUP BY borrower_uid, chat_id\n                    ) borrow ON borrow.borrower_uid = d.uid AND borrow.chat_id = d.chat_id\n                    LEFT JOIN (\n                        SELECT lender_uid, chat_id, SUM(debt) AS debt FROM p2p_loans\n                            WHERE repaid_at IS NULL GROUP BY lender_uid, chat_id\n                    ) lend ON lend.lender_uid = d.uid AND lend.chat_id = d.chat_id\n                    LEFT JOIN (\n                        SELECT payer_uid, chat_id, SUM(debt) AS debt FROM loan_interest_tax_debts\n                            WHERE repaid_at IS NULL GROUP BY payer_uid, chat_id\n                    ) tax ON tax.payer_uid = d.uid AND tax.chat_id = d.chat_id\n                    WHERE c.chat_id = $1::bigint OR c.chat_instance = $1::text\n                ) base\n                ORDER BY position\n                OFFSET $2 LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "net!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw_length!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "owner_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "owner_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "grown_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "position",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7ccd21dd4d786cb9578836e7c438845fd6588b886071c2c46e8461b238ccc456"
+}

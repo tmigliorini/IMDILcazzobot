@@ -6,7 +6,7 @@ use teloxide::Bot;
 use teloxide::macros::BotCommands;
 use teloxide::prelude::{CallbackQuery, Message, UserId};
 use teloxide::requests::Requester;
-use teloxide::types::ReplyMarkup;
+use teloxide::types::{ParseMode, ReplyMarkup};
 use callbacks::{EditMessageReqParamsKind, InvalidCallbackData};
 
 use crate::{check_invoked_by_owner_and_get_answer_params, metrics, repo};
@@ -114,8 +114,14 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery,
             let updated_text = t!("commands.loan.callback.success", locale = &lang_code);
             match edit_msg_params {
                 EditMessageReqParamsKind::Chat(chat_id, message_id) => {
-                    repos.loans.borrow(data.uid, &chat_id.into(), value).await?;
-                    bot.edit_message_text(chat_id, message_id, updated_text).await?;
+                    let chat_id_kind = chat_id.into();
+                    repos.loans.borrow(data.uid, &chat_id_kind, value).await?;
+                    if let Err(e) = repos.ledger.record_for_chat_kind(&chat_id_kind, data.uid, repo::LedgerCategory::LoanPrincipal, value as i32, None).await {
+                        log::error!("couldn't record a ledger entry for a bank loan ({}): {e}", data.uid);
+                    }
+                    let mut req = bot.edit_message_text(chat_id, message_id, updated_text);
+                    req.parse_mode.replace(ParseMode::Html);
+                    req.await?;
                 }
                 EditMessageReqParamsKind::Inline { chat_instance, inline_message_id } => {
                     let maybe_chat_id = try_resolve_chat_id(&inline_message_id)
@@ -131,7 +137,12 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery,
                     };
 
                     repos.loans.borrow(data.uid, &chat_id.kind(), value).await?;
-                    bot.edit_message_text_inline(inline_message_id, updated_text).await?;
+                    if let Err(e) = repos.ledger.record(&chat_id, data.uid, repo::LedgerCategory::LoanPrincipal, value as i32, None).await {
+                        log::error!("couldn't record a ledger entry for a bank loan ({}): {e}", data.uid);
+                    }
+                    let mut req = bot.edit_message_text_inline(inline_message_id, updated_text);
+                    req.parse_mode.replace(ParseMode::Html);
+                    req.await?;
                 }
             }
         }
@@ -139,10 +150,14 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery,
             let updated_text = t!("commands.loan.callback.payout_ratio_changed", locale = &lang_code);
             match edit_msg_params {
                 EditMessageReqParamsKind::Chat(chat_id, message_id) => {
-                    bot.edit_message_text(chat_id, message_id, updated_text).await?;
+                    let mut req = bot.edit_message_text(chat_id, message_id, updated_text);
+                    req.parse_mode.replace(ParseMode::Html);
+                    req.await?;
                 }
                 EditMessageReqParamsKind::Inline { inline_message_id, .. } => {
-                    bot.edit_message_text_inline(inline_message_id, updated_text).await?;
+                    let mut req = bot.edit_message_text_inline(inline_message_id, updated_text);
+                    req.parse_mode.replace(ParseMode::Html);
+                    req.await?;
                 }
             }
         }
@@ -154,11 +169,15 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery,
                         .inspect_err(|e| log::error!("Unable to delete a loan request message: {e}"))
                         .is_err();
                     if unable_to_delete_message {
-                        bot.edit_message_text(chat_id, message_id, updated_text).await?;
+                        let mut req = bot.edit_message_text(chat_id, message_id, updated_text);
+                        req.parse_mode.replace(ParseMode::Html);
+                        req.await?;
                     }
                 }
                 EditMessageReqParamsKind::Inline { inline_message_id, .. } => {
-                    bot.edit_message_text_inline(inline_message_id, updated_text).await?;
+                    let mut req = bot.edit_message_text_inline(inline_message_id, updated_text);
+                    req.parse_mode.replace(ParseMode::Html);
+                    req.await?;
                 }
             }
         }

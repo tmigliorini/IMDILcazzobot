@@ -5,7 +5,9 @@ use teloxide::macros::BotCommands;
 use teloxide::types::Message;
 use crate::handlers::{HandlerResult, promo_activation_impl, PROMO_START_PARAM_PREFIX, reply_html};
 use crate::{metrics, reply_html, repo};
+use crate::config::AppConfig;
 use crate::domain::{LanguageCode, Username};
+use crate::external_text::ExternalTexts;
 use crate::help::HelpContainer;
 
 #[derive(BotCommands, Clone)]
@@ -15,11 +17,11 @@ pub enum StartCommands {
 }
 
 pub async fn start_cmd_handler(bot: Bot, msg: Message, cmd: StartCommands,
-                               help: HelpContainer, repos: repo::Repositories) -> HandlerResult {
+                               help: HelpContainer, texts: ExternalTexts, repos: repo::Repositories, config: AppConfig) -> HandlerResult {
     let lang_code = LanguageCode::from_maybe_user(msg.from.as_ref());
     let answer = if msg.from.as_ref().is_none() {
         log::warn!("The /start command was invoked without a FROM field for message: {:?}", msg);
-        help.get_help_message(lang_code).to_owned()
+        help.get_help_message(lang_code, &texts.intro)
     } else {
         match cmd {
             StartCommands::Start(promo_code) if promo_code.starts_with(PROMO_START_PARAM_PREFIX) => {
@@ -28,12 +30,12 @@ pub async fn start_cmd_handler(bot: Bot, msg: Message, cmd: StartCommands,
                 let encoded_promo_code = promo_code.strip_prefix(PROMO_START_PARAM_PREFIX)
                     .expect("promo start param prefix must be present here");
                 let promo_code = decode_promo_code(encoded_promo_code)?;
-                promo_activation_impl(repos.promo, user, &promo_code).await?
+                promo_activation_impl(&repos, &config, user, &promo_code).await?
             }
             StartCommands::Start(_) => {
                 metrics::CMD_START_COUNTER.inc();
                 let username = Username::new(msg.from.as_ref().unwrap().first_name.clone());
-                help.get_start_message(username, lang_code)
+                help.get_start_message(username, lang_code, &texts.intro)
             }
         }
     };

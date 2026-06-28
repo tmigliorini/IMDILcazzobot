@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ComboOffers WHERE token = $1 AND proposer_uid = $2\n                RETURNING proposer_uid, target_uid,\n                          leg1_kind as \"leg1_kind: ComboLegKind\", leg1_amount, leg1_rate_pct,\n                          leg2_kind as \"leg2_kind: ComboLegKind\", leg2_amount, leg2_rate_pct",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "proposer_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_uid",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "leg1_kind: ComboLegKind",
+        "type_info": {
+          "Custom": {
+            "name": "combo_offer_leg_kind",
+            "kind": {
+              "Enum": [
+                "pvp",
+                "donate",
+                "p2ploan"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "leg1_amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "leg1_rate_pct",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 5,
+        "name": "leg2_kind: ComboLegKind",
+        "type_info": {
+          "Custom": {
+            "name": "combo_offer_leg_kind",
+            "kind": {
+              "Enum": [
+                "pvp",
+                "donate",
+                "p2ploan"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "leg2_amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "leg2_rate_pct",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e98667505afb7f5ae8d773ea6fdef703702630dafe2e15e69139de8acd819641"
+}
