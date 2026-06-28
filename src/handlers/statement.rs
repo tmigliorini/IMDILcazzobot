@@ -59,33 +59,59 @@ pub(crate) async fn statement_impl(repos: &repo::Repositories, from_refs: FromRe
     let balance = repos.dicks.fetch_length(from.id, &chat_id.kind()).await?;
     let entries = repos.ledger.get_page(chat_id, from.id, offset, query_limit).await?;
     let has_more_pages = entries.len() as u16 > STATEMENT_PAGE_SIZE;
-    let lines = entries.into_iter()
-        .take(STATEMENT_PAGE_SIZE as usize)
-        .map(|entry| format_entry(&entry, &lang_code))
-        .collect::<Vec<_>>();
+    let entries = entries.into_iter().take(STATEMENT_PAGE_SIZE as usize).collect::<Vec<_>>();
 
     let title = t!("commands.estratto.title", locale = &lang_code, balance = balance);
-    let body = if lines.is_empty() {
+    let body = if entries.is_empty() {
         t!("commands.estratto.empty", locale = &lang_code).to_string()
     } else {
-        lines.join("\n\n")
+        group_by_datetime(&entries).into_iter()
+            .map(|(datetime, group)| {
+                let header = t!("commands.estratto.group_header", locale = &lang_code, datetime = datetime);
+                let lines = group.into_iter().map(|entry| format_entry(entry, &lang_code)).collect::<Vec<_>>();
+                format!("{header}\n{}", lines.join("\n"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
     };
     Ok(Statement { lines: format!("{title}\n\n{body}"), has_more_pages })
+}
+
+/// Groups consecutive entries (already newest-first from `get_page`) that share the same
+/// *displayed* datetime - e.g. every row a single tax-debt redistribution touched at once - so
+/// the caller can print one timestamp per group instead of repeating it on every line, which
+/// would otherwise look like N unrelated events rather than one. Keyed by the formatted string
+/// rather than raw equality of `created_at`: rows from the same logical event can differ by a
+/// few milliseconds if they were inserted via separate statements (see `Ledger::record_many`),
+/// but they still render to the same minute-precision string.
+fn group_by_datetime(entries: &[LedgerEntry]) -> Vec<(String, Vec<&LedgerEntry>)> {
+    let mut groups: Vec<(String, Vec<&LedgerEntry>)> = Vec::new();
+    for entry in entries {
+        let datetime = format_datetime(entry);
+        match groups.last_mut() {
+            Some((last_datetime, group)) if *last_datetime == datetime => group.push(entry),
+            _ => groups.push((datetime, vec![entry])),
+        }
+    }
+    groups
+}
+
+fn format_datetime(entry: &LedgerEntry) -> String {
+    entry.created_at.with_timezone(&chrono_tz::Europe::Rome).format("%d/%m %H:%M").to_string()
 }
 
 fn format_entry(entry: &LedgerEntry, lang_code: &LanguageCode) -> String {
     let category_t_key = format!("commands.estratto.categories.{}", category_key(entry.category));
     let category = t!(&category_t_key, locale = lang_code);
     let amount = format!("{:+}", entry.amount);
-    let datetime = entry.created_at.with_timezone(&chrono_tz::Europe::Rome).format("%d/%m %H:%M").to_string();
     match &entry.counterparty {
         Some((_, name)) => {
             let counterparty = Username::new(name.clone()).escaped();
             t!("commands.estratto.line_with_counterparty", locale = lang_code,
-                category = category, amount = amount, counterparty = counterparty, datetime = datetime).to_string()
+                category = category, amount = amount, counterparty = counterparty).to_string()
         }
         None => t!("commands.estratto.line", locale = lang_code,
-            category = category, amount = amount, datetime = datetime).to_string()
+            category = category, amount = amount).to_string()
     }
 }
 

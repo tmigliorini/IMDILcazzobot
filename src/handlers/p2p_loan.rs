@@ -684,7 +684,7 @@ fn format_loan_status_line(lang_code: &LanguageCode, line_key: &str, name: Strin
     if original_principal == 0 {
         return main_line
     }
-    let rate_pct = (original_interest as f64 / original_principal as f64 * 100.0 * 100.0).round() / 100.0;
+    let rate_pct = (original_interest as f64 / original_principal as f64 * 100.0).round() as i64;
     let breakdown = t!("commands.debiti.breakdown_line", locale = lang_code,
         principal = original_principal, rate = rate_pct, interest = original_interest).to_string();
     format!("{main_line}\n{breakdown}")

@@ -81,10 +81,14 @@ pub(crate) fn build_menu_keyboard(uid: UserId, lang_code: &LanguageCode) -> Inli
     InlineKeyboardMarkup::new(rows)
 }
 
-fn build_back_keyboard(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
+fn back_button(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardButton {
     let label = t!("inline.info_menu.back_button", locale = lang_code).to_string();
     let data = InfoCallbackData { uid, section: None }.to_data_string();
-    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(label, data)]])
+    InlineKeyboardButton::callback(label, data)
+}
+
+fn build_back_keyboard(uid: UserId, lang_code: &LanguageCode) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![back_button(uid, lang_code)]])
 }
 
 #[inline]
@@ -99,27 +103,31 @@ pub async fn callback_handler(bot: Bot, query: CallbackQuery, repos: Repositorie
 
     let (text, keyboard) = match data.section {
         None => (t!("inline.info_menu.intro", locale = &lang_code).to_string(), build_menu_keyboard(data.uid, &lang_code)),
-        // `Estratto` gets its own pagination row instead of the shared back-button keyboard - it's
-        // the one section whose content doesn't fit in a single page, and once the ⬅️/➡️ buttons
-        // are tapped, navigation continues entirely through `statement::callback_handler` (a
-        // separate "stmt"-prefixed callback, already wired in `main.rs`), independent of this menu.
+        // `Estratto` gets its own pagination row, since it's the one section whose content
+        // doesn't fit in a single page - once the ⬅️/➡️ buttons are tapped, navigation continues
+        // entirely through `statement::callback_handler` (a separate "stmt"-prefixed callback,
+        // already wired in `main.rs`), independent of this menu. The back-to-menu button still
+        // rides along as its own row underneath, so a paginated section never strands the player
+        // without a way back to the section picker (they'd otherwise have to re-open the listone).
         Some(InfoSection::Estratto) => {
             metrics::CMD_STATEMENT_COUNTER.inline.inc();
             let chat_id = utils::resolve_callback_chat_id(&query, config.features.chats_merging);
             let from_refs = FromRefs(&query.from, &chat_id);
             let statement = statement::statement_impl(&repos, from_refs, Page::first()).await?;
-            let keyboard = statement::build_pagination_keyboard(data.uid, Page::first(), statement.has_more_pages);
+            let keyboard = statement::build_pagination_keyboard(data.uid, Page::first(), statement.has_more_pages)
+                .append_row(vec![back_button(data.uid, &lang_code)]);
             (statement.lines, keyboard)
         },
         // same reasoning as `Estratto` above: `Debiti` can also span more than one page, so it
-        // gets its own pagination row (continuing through `p2p_loan::debiti_callback_handler`)
-        // instead of the shared back-button keyboard.
+        // gets its own pagination row (continuing through `p2p_loan::debiti_callback_handler`),
+        // plus the same back-to-menu row underneath.
         Some(InfoSection::Debiti) => {
             metrics::CMD_P2P_LOAN_STATUS_COUNTER.inline.inc();
             let chat_id = utils::resolve_callback_chat_id(&query, config.features.chats_merging);
             let from_refs = FromRefs(&query.from, &chat_id);
             let status = p2p_loan::p2p_loan_status_impl(&repos, from_refs, Page::first()).await?;
-            let keyboard = p2p_loan::build_debiti_pagination_keyboard(data.uid, Page::first(), status.has_more_pages);
+            let keyboard = p2p_loan::build_debiti_pagination_keyboard(data.uid, Page::first(), status.has_more_pages)
+                .append_row(vec![back_button(data.uid, &lang_code)]);
             (status.lines, keyboard)
         },
         Some(section) => {

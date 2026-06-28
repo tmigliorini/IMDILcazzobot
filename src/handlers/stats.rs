@@ -103,7 +103,7 @@ pub(crate) async fn chat_stats_impl(repos: &repo::Repositories, from_refs: FromR
     let pvp_stats = repos.pvp_stats.get_stats(&from_refs.1.kind(), from_refs.0.id).await
         .map(|stats| t!("commands.stats.pvp", locale = &lang_code,
             win_rate = stats.win_rate_formatted(), win_streak = stats.win_streak_max,
-            battles = stats.battles_total, wins = stats.battles_won,
+            lose_streak = stats.lose_streak_max, battles = stats.battles_total, wins = stats.battles_won,
             acquired = stats.acquired_length, lost = stats.lost_length).to_string())?;
     let breakdown = category_breakdown(repos, from_refs).await?;
     let notice_part = if features.show_stats_notice {

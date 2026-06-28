@@ -255,9 +255,10 @@ async fn redistribute_tax_payout(repos: &Repositories, chat_id: &ChatIdKind, pay
     // unlike `/tax` itself (a many-payers-to-many-recipients pool with no 1:1 relationship), this
     // installment always has exactly one payer, so each recipient's share can be attributed to
     // them precisely: one paired (payer debit, recipient credit) per recipient, both carrying the
-    // other side as their counterparty. Any leftover from `redistribute_to_bottom`'s rounding
-    // (floored shares may sum to less than `payout`) gets its own counterparty-less row, so the
-    // payer's total debit still adds up to exactly `-payout`.
+    // other side as their counterparty. `redistribute_to_bottom` itself never leaves any of
+    // `payout` undistributed when there's at least one recipient (see its own docs), so the
+    // `undistributed` row below only ever fires in the one case where there's nobody to give it
+    // to at all (an undersized chat - see the `None` branch).
     let mut ledger_deltas: Vec<(UserId, i32, Option<UserId>)> = Vec::new();
     let mut distributed: i32 = 0;
     let mut recipients = Vec::new();

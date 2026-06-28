@@ -167,7 +167,7 @@ pub async fn inline_handler(bot: Bot, query: InlineQuery, repos: Repositories, a
     let uid = query.from.id.0;
     let lang_code = LanguageCode::from_user(&query.from);
     let btn_label = t!("inline.results.button", locale = &lang_code);
-    let mut results: Vec<InlineQueryResult> = InlineCommand::iter()
+    let mut by_id: std::collections::HashMap<String, InlineQueryResult> = InlineCommand::iter()
         .map(|cmd| cmd.to_string())
         .filter(|cmd| app_config.command_toggles.enabled(cmd))
         .map(|key| {
@@ -182,7 +182,7 @@ pub async fn inline_handler(bot: Bot, query: InlineQuery, repos: Repositories, a
                 InlineKeyboardButton::callback(btn_label.clone(), format!("{uid}:{key}"))
             ]];
             article.reply_markup.replace(InlineKeyboardMarkup::new(buttons));
-            InlineQueryResult::Article(article)
+            (key, InlineQueryResult::Article(article))
         })
         .collect();
 
@@ -196,12 +196,27 @@ pub async fn inline_handler(bot: Bot, query: InlineQuery, repos: Repositories, a
             t!("inline.info_menu.intro", locale = &lang_code)));
         let article = InlineQueryResultArticle::new("info-menu", title, content)
             .reply_markup(info::build_menu_keyboard(query.from.id, &lang_code));
-        results.push(InlineQueryResult::Article(article));
+        by_id.insert("info-menu".to_owned(), InlineQueryResult::Article(article));
     }
 
-    for builder in &EXTERNAL_VARIANTS.builders {
-        results.push(builder(&query, &lang_code, &app_config, &name))
+    // ids in the same order as the `EXTERNAL_VARIANTS` static array below (pvp, donate, presta).
+    const PICKER_RESULT_IDS: [&str; 3] = ["pvp-picker", "donate-picker", "presta-picker"];
+    for (&id, builder) in PICKER_RESULT_IDS.iter().zip(&EXTERNAL_VARIANTS.builders) {
+        by_id.insert(id.to_owned(), builder(&query, &lang_code, &app_config, &name));
     }
+
+    // the listone's actual on-screen order, interleaving the three groups built above (enum-
+    // driven entries, the info submenu, the amount pickers) into the single sequence players
+    // asked for - independent of which internal group each entry happens to come from. A
+    // toggled-off command (see `command_toggles` above) is simply absent from `by_id`, so it's
+    // skipped here exactly as it was when results were pushed linearly.
+    const RESULT_ORDER: [&str; 10] = [
+        "grow", "dick_of_day", "tax", "pvp-picker", "presta-picker", "donate-picker",
+        "wizard", "loan", "top", "info-menu",
+    ];
+    let results: Vec<InlineQueryResult> = RESULT_ORDER.iter()
+        .filter_map(|key| by_id.remove(*key))
+        .collect();
 
     let mut answer = bot.answer_inline_query(&query.id, results.clone())
         .is_personal(true);

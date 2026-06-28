@@ -137,7 +137,8 @@ pub(crate) async fn tax_impl(repos: &Repositories, config: &AppConfig, from_refs
 /// Splits `pool` among `bottom` proportionally to how far below `benchmark_length` (the player
 /// just above this group) each of them is - the neediest gets the largest share, and players
 /// equally needy (including a tie across the whole group) split evenly. `None` if `bottom` is
-/// empty, since there's nobody to receive a share.
+/// empty, since there's nobody to receive a share. The shares always sum to exactly `pool` - see
+/// the largest-remainder step below, which hands out whatever flooring would otherwise lose.
 pub(crate) fn redistribute_to_bottom(bottom: &[Dick], benchmark_length: i32, pool: i64) -> Option<Vec<(UserId, i32)>> {
     if bottom.is_empty() {
         return None
@@ -147,14 +148,34 @@ pub(crate) fn redistribute_to_bottom(bottom: &[Dick], benchmark_length: i32, poo
         .collect();
     let need_sum: f64 = need.iter().sum();
 
-    let deltas = bottom.iter().zip(need.iter())
-        .map(|(player, &need)| {
+    let raw_shares: Vec<f64> = need.iter()
+        .map(|&need| {
             let weight = if need_sum > 0.0 { need / need_sum } else { 1.0 / bottom.len() as f64 };
-            let share = ((pool as f64) * weight).floor() as i32;
-            (player.owner_uid.into(), share)
+            pool as f64 * weight
         })
         .collect();
-    Some(deltas)
+    let mut shares: Vec<i32> = raw_shares.iter().map(|raw| raw.floor() as i32).collect();
+
+    // flooring every individual share can leave a handful of ghei undistributed (e.g. 100 ghei
+    // split 3 equal ways floors 33.33 to 33 each, losing 1 to nobody) - hand the shortfall out
+    // one ghei at a time, largest leftover fraction first (the "largest remainder" apportionment
+    // method), so the total redistributed always matches `pool` exactly instead of quietly
+    // losing a few ghei to rounding every time this runs.
+    let mut leftover = pool as i32 - shares.iter().sum::<i32>();
+    let mut by_fraction: Vec<usize> = (0..bottom.len()).collect();
+    by_fraction.sort_by(|&a, &b| {
+        let frac = |i: usize| raw_shares[i] - raw_shares[i].floor();
+        frac(b).partial_cmp(&frac(a)).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for i in by_fraction {
+        if leftover <= 0 {
+            break
+        }
+        shares[i] += 1;
+        leftover -= 1;
+    }
+
+    Some(bottom.iter().zip(shares).map(|(player, share)| (player.owner_uid.into(), share)).collect())
 }
 
 #[cfg(test)]
@@ -184,10 +205,12 @@ mod test {
     fn neediest_gets_the_largest_share() {
         let bottom = [dick(1, 0), dick(2, 5), dick(3, 8)];
         let deltas = redistribute_to_bottom(&bottom, 10, 100).expect("there are recipients");
+        // raw shares: 58.82, 29.41, 11.76 - flooring alone would lose 2 ghei (58+29+11=98); the
+        // largest-remainder step hands them to the two biggest fractions (.82 and .76) instead.
         assert_eq!(deltas, vec![
-            (UserId(1), 58), // (10-0)/17 * 100
-            (UserId(2), 29), // (10-5)/17 * 100
-            (UserId(3), 11), // (10-8)/17 * 100
+            (UserId(1), 59), // floor(10/17 * 100) = 58, +1 (largest remainder)
+            (UserId(2), 29), // floor(5/17 * 100) = 29
+            (UserId(3), 12), // floor(2/17 * 100) = 11, +1 (2nd largest remainder)
         ]);
     }
 
@@ -196,6 +219,16 @@ mod test {
         let bottom = [dick(1, 10), dick(2, 10), dick(3, 10)];
         let deltas = redistribute_to_bottom(&bottom, 10, 90).expect("there are recipients");
         assert_eq!(deltas, vec![(UserId(1), 30), (UserId(2), 30), (UserId(3), 30)]);
+    }
+
+    #[test]
+    fn no_ghei_are_ever_lost_to_rounding() {
+        // an awkward pool/group-size combo that floors to less than the pool on every member if
+        // the remainder isn't redistributed (100 split 3 ways at equal need: 33.33 each).
+        let bottom = [dick(1, 10), dick(2, 10), dick(3, 10)];
+        let deltas = redistribute_to_bottom(&bottom, 10, 100).expect("there are recipients");
+        let total: i32 = deltas.iter().map(|&(_, share)| share).sum();
+        assert_eq!(total, 100, "the full pool must always be handed out, never partly lost to flooring");
     }
 }
 

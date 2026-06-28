@@ -20,8 +20,8 @@ commands:
     can_grow_marker: " [+]"
     wr: " (<b>%{battles}/%{wr}%</b>)"
     net_breakdown:
-      creditor: "<i>(<b>%{ghei} ghei</b> puri, +<b>%{delta}</b> de credit)</i>"
-      debtor: "<i>(<b>%{ghei} ghei</b> puri, -<b>%{delta}</b> de debit)</i>"
+      creditor: "<i>    (<b>%{ghei} ghei</b>, +<b>%{delta}</b> de credit)</i>"
+      debtor: "<i>    (<b>%{ghei} ghei</b>, -<b>%{delta}</b> de debit)</i>"
     ending: "<i>[+] el voeur dì che chi gioega no gh'a minga ancamò fada cresce el sò bigol incoeu.</i>"
     empty: "Gh'è ancamò nissun in del gioeugh :("
   dod:
@@ -139,7 +139,7 @@ commands:
     as_lender:
       title: "📤 <i>Quell che te spetta de incassà:</i>"
       line: "— de <b>%{name}</b>: <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
-    breakdown_line: "    capital <b>%{principal} ghei</b> + interess al <b>%{rate}%</b> (<b>%{interest} ghei</b>)"
+    breakdown_line: "    capital <b>%{principal} ghei</b> + interess <b>%{interest} ghei</b> (<b>%{rate}%</b>)"
     tax_debt:
       title: "🇮🇹 <i>Debit de tassa sui interess:</i>"
       line: "— <b>%{debt} ghei</b> rimanent su <b>%{original_debt}</b> · %{progress}"
@@ -156,7 +156,7 @@ commands:
   stats:
     description: "Statistiche"
     length: "Longhezza: <b>%{length}</b>\nPosizion in la classifica: <b>%{pos}</b>"
-    pvp: "Percentual de vittorie: <b>%{win_rate}</b>.\nSfide: <b>%{battles}</b>.\nVittorie: <b>%{wins}</b>.\nStriscia massima de vittorie: <b>%{win_streak}</b>.\nLonghezza guadagnada: <b>%{acquired} ghei</b>.\nLonghezza perduda: <b>%{lost} ghei</b>."
+    pvp: "Percentual de vittorie: <b>%{win_rate}</b>.\nSfide: <b>%{battles}</b>.\nVittorie: <b>%{wins}</b>.\nStriscia massima de vittorie: <b>%{win_streak}</b>.\nStriscia massima de sconfitte: <b>%{lose_streak}</b>.\nLonghezza guadagnada: <b>%{acquired} ghei</b>.\nLonghezza perduda: <b>%{lost} ghei</b>."
     notice: "Salut!"
     personal: "<i>Le tue statistiche personai:</i>\n— Numer de chat indoe te gioeughet: <b>%{chats}</b>.\n— Longhezza massima: <b>%{max_length}</b>.\n— Somma di bigoi in tucc i chat: <b>%{total_length}</b>."
     categories:
@@ -174,8 +174,9 @@ commands:
     description: "Vegh l'estratt cont de la chat, transazion per transazion"
     title: "🧾 <i>Estratt cont (in sta chat chì):</i>\nSaldo residuo: <b>%{balance} ghei</b>"
     empty: "Gh'è ancamò nissuna transazion registrada in sta chat chì."
-    line: "<i>%{datetime}</i>\n%{category}: <b>%{amount} ghei</b>"
-    line_with_counterparty: "<i>%{datetime}</i>\n%{category}: <b>%{amount} ghei</b> (cont %{counterparty})"
+    group_header: "<i>%{datetime}</i>"
+    line: "%{category}: <b>%{amount} ghei</b>"
+    line_with_counterparty: "%{category}: <b>%{amount} ghei</b> (cont %{counterparty})"
     categories:
       grow: "🎲 Crescida"
       pvp: "🎰 Sfida"
@@ -238,7 +239,7 @@ inline:
       loan: "✡️ In meno? Tö sü on prestit!"
       tax: "🇮🇹 Tassa"
       info: "ℹ️ Informazion"
-      wizard: "🧙 Offerta avanzada (combo, import liber)"
+      wizard: "🇳🇬 Imbroj (combo, import liber)"
       pvp: "🎰 Sfida i alter cont una posta de %{bet} ghei!"
       donate: "💰 Dona %{amount} ghei a quaivun!"
       donate_pull: "💰 Ciama %{amount} ghei de quaivun!"
@@ -282,7 +283,7 @@ titles:
     some: "\n\nProsim tentativ in <b>%{hours}</b>h <b>%{minutes}</b>m."
   recipient_line: "→ <b>%{name}</b>: <b>%{payout} ghei</b>"
   recipient_line_with_remaining: "→ <b>%{name}</b>: <b>%{payout} ghei</b> (resta <b>%{remaining} ghei</b>)"
-  debt_withheld: "Di guadagn, <b>%{payout} ghei</b> hinn staa tegnuu indree per pagà i tò debit."
+  debt_withheld: "Di guadagn, <b>%{payout} ghei</b> hinn staa tegnuu indree per pagà el tò microprestit in banca."
   debt_withheld_named: "Di guadagn, <b>%{payout} ghei</b> hinn staa tegnuu indree per pagà i tò debit, destinaa a:"
   perks:
     top_line: "I següent vantagg hann influenzaa el resultaa"

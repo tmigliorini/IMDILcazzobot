@@ -141,9 +141,11 @@ impl P2PLoans {
             .collect())
     }
 
-    /// `borrower`'s active loans in `chat_id`, oldest first, alongside each lender's name - a
-    /// read-only counterpart to `get_active_loans` for showing "what do I still owe" (see
-    /// `crate::handlers::p2p_loan::p2p_loan_status_impl`).
+    /// `borrower`'s active loans in `chat_id`, grouped by lender name (oldest first within a
+    /// group) - a read-only counterpart to `get_active_loans` for showing "what do I still owe"
+    /// (see `crate::handlers::p2p_loan::p2p_loan_status_impl`). Unlike `get_active_loans`, this is
+    /// purely for display, so grouping by counterparty name takes priority over chronological
+    /// order.
     pub async fn get_active_loans_as_borrower(&self, borrower: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Vec<P2PLoanStatus>> {
         sqlx::query_as!(P2PLoanStatusEntity,
             r#"SELECT u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest
@@ -152,7 +154,7 @@ impl P2PLoans {
                     WHERE pl.borrower_uid = $1 AND
                     pl.chat_id = (SELECT id FROM Chats WHERE chat_id = $2::bigint OR chat_instance = $2::text)
                     AND pl.repaid_at IS NULL
-                    ORDER BY pl.created_at ASC"#,
+                    ORDER BY u.name ASC, pl.created_at ASC"#,
                 borrower.0 as i64, chat_id.value() as String)
             .fetch_all(&self.pool)
             .await
@@ -161,7 +163,7 @@ impl P2PLoans {
     }
 
     /// Symmetric to `get_active_loans_as_borrower`: `lender`'s active loans in `chat_id`,
-    /// alongside each borrower's name - "what's still owed to me".
+    /// grouped by borrower name (oldest first within a group) - "what's still owed to me".
     pub async fn get_active_loans_as_lender(&self, lender: UserId, chat_id: &ChatIdKind) -> anyhow::Result<Vec<P2PLoanStatus>> {
         sqlx::query_as!(P2PLoanStatusEntity,
             r#"SELECT u.name AS counterparty_name, pl.debt, pl.payout_ratio, pl.original_principal, pl.original_interest
@@ -170,7 +172,7 @@ impl P2PLoans {
                     WHERE pl.lender_uid = $1 AND
                     pl.chat_id = (SELECT id FROM Chats WHERE chat_id = $2::bigint OR chat_instance = $2::text)
                     AND pl.repaid_at IS NULL
-                    ORDER BY pl.created_at ASC"#,
+                    ORDER BY u.name ASC, pl.created_at ASC"#,
                 lender.0 as i64, chat_id.value() as String)
             .fetch_all(&self.pool)
             .await
